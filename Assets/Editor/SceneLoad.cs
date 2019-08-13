@@ -8,6 +8,13 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+<<<<<<< HEAD
+=======
+using AssetsTools.NET;
+using AssetsTools.NET.Extra;
+using System.Text;
+using System;
+>>>>>>> Added scene list
 
 public class SceneLoad
 {
@@ -25,10 +32,15 @@ public class SceneLoad
     //    //GameObject go = new GameObject();
     //    //go.AddComponent<SceneLoader>().sceneName = "testscene";
     //}
+<<<<<<< HEAD
     [MenuItem("HKEdit/Load Scene v2", priority = 0)]
     public static void CreateScene()
     {
         string path = EditorUtility.OpenFilePanel("Open level file", "", "");
+=======
+    public static void OpenScene(string path)
+    {
+>>>>>>> Added scene list
         if (path.Length != 0)
         {
             string expScenesDir = Path.Combine(Application.dataPath, "ExportedScenes");
@@ -38,7 +50,11 @@ public class SceneLoad
             if (File.Exists(destPath))
             {
                 bool choice = EditorUtility.DisplayDialog(
+<<<<<<< HEAD
                     "Scene already loaded", 
+=======
+                    "Scene already loaded",
+>>>>>>> Added scene list
                     "This scene has already been converted. Do you want to continue working on the scene or discard and reload?",
                     "Continue Working", "Discard and Reload");
                 if (choice)
@@ -57,7 +73,11 @@ public class SceneLoad
 
             EditorSceneManager.OpenScene(localDestPath);
 
+<<<<<<< HEAD
             EditLevelMetadata metadata = Object.FindObjectOfType<EditLevelMetadata>();
+=======
+            EditLevelMetadata metadata = UnityEngine.Object.FindObjectOfType<EditLevelMetadata>();
+>>>>>>> Added scene list
             EditDiffer.usedIds.Clear();
             EditDiffer.lastId = 1;
             foreach (long usedId in metadata.usedIds)
@@ -66,10 +86,107 @@ public class SceneLoad
                 if (usedId > EditDiffer.lastId)
                     EditDiffer.lastId = usedId + 1;
             }
+<<<<<<< HEAD
             Object.DestroyImmediate(metadata);
         }
     }
 }
+=======
+            UnityEngine.Object.DestroyImmediate(metadata);
+        }
+    }
+    [MenuItem("HKEdit/Load Scene v2", priority = 0)]
+    public static void CreateScene()
+    {
+        string path = EditorUtility.OpenFilePanel("Open level file", "", "");
+        OpenScene(path);
+    }
+
+    [MenuItem("HKEdit/Open Scene By Name", priority = 0)]
+    public static void OpenSceneByName()
+    {
+        AssetsManager am = new AssetsManager();
+        am.LoadClassPackage(Path.Combine(Application.dataPath, "cldb.dat"));
+
+        string gameDataPath = GetGamePath();
+
+        AssetsFileInstance inst = am.LoadAssetsFile(Path.Combine(gameDataPath, "globalgamemanagers"), false);
+        AssetFileInfoEx buildSettings = inst.table.getAssetInfo(11);
+
+        List<string> scenes = new List<string>();
+        AssetTypeValueField baseField = am.GetATI(inst.file, buildSettings).GetBaseField();
+        AssetTypeValueField sceneArray = baseField.Get("scenes").Get("Array");
+        for (uint i = 0; i < sceneArray.GetValue().AsArray().size; i++)
+        {
+            scenes.Add(sceneArray[i].GetValue().AsString() + "[" + i + "]");
+        }
+        SceneSelector sel = SceneSelector.ShowDialog(am, scenes, gameDataPath);
+    }
+    private static string GetGamePath()
+    {
+        string gamePath = SteamHelper.FindHollowKnightPath();
+
+        if (gamePath == "" || !Directory.Exists(gamePath))
+        {
+            EditorUtility.DisplayDialog("HKEdit", "Could not find Steam path. If you've moved your Steam directory this could be why. Contact nes.", "OK");
+            return null;
+        }
+
+        string gameDataPath = Path.Combine(gamePath, "hollow_knight_Data");
+
+        return gameDataPath;
+    }
+
+    //[MenuItem("HKDebug/Unload Bundle", priority = 51)]
+    //public static void UnloadBundle()
+    //{
+    //    AssetBundle.UnloadAllAssetBundles(true);
+    //}
+}
+
+public class SceneSelector : EditorWindow
+{
+    AssetsManager am = null;
+    string[] strings = null;
+    string gameDataPath;
+    public static SceneSelector ShowDialog(AssetsManager am, List<string> scenes, string gameDataPath)
+    {
+        SceneSelector window = GetWindow<SceneSelector>();
+        window.am = am;
+        window.strings = scenes.ToArray();
+        window.gameDataPath = gameDataPath;
+        return window;
+    }
+
+    Vector2 scrollPos;
+    int selected = -1;
+    void OnGUI()
+    {
+        if (am == null || strings == null || gameDataPath == string.Empty)
+            return;
+        Rect scrollViewRect = new Rect(0, 0, position.width, position.height);
+        Rect selectionGridRect = new Rect(0, 0, position.width - 20, strings.Length * 20);
+        scrollPos = GUI.BeginScrollView(scrollViewRect, scrollPos, selectionGridRect);
+        selected = GUI.SelectionGrid(selectionGridRect, selected, strings, 1);
+        GUI.EndScrollView();
+
+        if (selected != -1)
+        {
+            string path = Path.Combine(gameDataPath, "level" + selected);
+            SceneLoad.OpenScene(path);
+            selected = -1;
+        }
+    }
+
+    void OnEnable()
+    {
+        titleContent.text = "Level Selector";
+    }
+}
+
+
+
+>>>>>>> Added scene list
 //[ExecuteInEditMode]
 //public class SceneLoader : MonoBehaviour
 //{
