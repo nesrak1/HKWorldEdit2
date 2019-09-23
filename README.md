@@ -8,9 +8,9 @@ You can load a scene with `HKEdit->Load Scene` by file or `HKEdit->Open Scene By
 
 Progress:
 
-[x] Read Scenes
-[x] Writable Scenes
-[ ] Diff Generation
-[ ] Fix mod to be compatible
+* [x] Read Scenes
+* [x] Writable Scenes
+* [ ] Diff Generation
+* [ ] Fix mod to be compatible
 
 Requires Unity 2017.4.10f1.
