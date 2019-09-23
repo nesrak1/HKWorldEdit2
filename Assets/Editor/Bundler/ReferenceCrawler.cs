@@ -10,257 +10,192 @@ namespace Assets.Bundler
 {
     public class ReferenceCrawler
     {
-        //we don't touch this file
-        //if you want to improve this with a pr that would be great
-        public static void CrawlPPtrs(AssetsManager am, AssetsFileInstance inst, ulong startingId, List<string> fileNames, Dictionary<AssetID, byte[]> depIds)
+        //we use two files to isolate textures, audioclips, shaders, etc. because unity will corrupt them
+        const string SCENE_LEVEL_NAME = "editorscene"; //give a name to the memory bundle which has no file name
+        const string ASSET_LEVEL_NAME = "editorasset";
+        int sceneId;
+        int assetId;
+        public Dictionary<AssetID, AssetID> references; //game space to scene space
+        public List<AssetsReplacer> sceneReplacers;
+        public List<AssetsReplacer> assetReplacers;
+        private AssetsManager am;
+        public ReferenceCrawler(AssetsManager am)
         {
-            AssetFileInfoEx info = inst.table.getAssetInfo(startingId);
-            AssetTypeValueField baseField;
-            if (info.curFileType == 0x72)
-                baseField = am.GetMonoBaseFieldCached(inst, info, Path.Combine(Path.GetDirectoryName(inst.path), "Managed"));
-            else
-                baseField = am.GetATI(inst.file, info).GetBaseField();
-            RecurseType(am, inst, info, baseField, fileNames, depIds, 0);
+            this.am = am;
+            sceneId = 1;
+            assetId = 1;
+            references = new Dictionary<AssetID, AssetID>();
+            sceneReplacers = new List<AssetsReplacer>();
+            assetReplacers = new List<AssetsReplacer>();
         }
-        public static void CrawlReplacePPtrs(AssetsManager am, AssetsFileInstance inst, ulong startingId, List<string> fileNames, Dictionary<AssetID, byte[]> depIds, Dictionary<AssetID, long> aidToPid, Dictionary<long, long> gidToMid)
+        public void FindReferences(AssetsFileInstance inst, AssetFileInfoEx inf)
         {
-            AssetFileInfoEx info = inst.table.getAssetInfo(startingId);
-            AssetTypeValueField baseField;
-            if (info.curFileType == 0x72)
-                baseField = am.GetMonoBaseFieldCached(inst, info, Path.Combine(Path.GetDirectoryName(inst.path), "Managed"), fileNames, aidToPid);
-            else
-                baseField = am.GetATI(inst.file, info).GetBaseField();
-            RecurseTypeReplace(am, inst, info, baseField, fileNames, depIds, aidToPid, gidToMid, 0);
+            AssetTypeValueField baseField = am.GetATI(inst.file, inf).GetBaseField();
+            FindReferencesRecurse(inst, baseField, inf);
         }
-        //thats a nice function, be a shame if you ran out of memory
-        private static void RecurseType(AssetsManager am, AssetsFileInstance inst, AssetFileInfoEx info, AssetTypeValueField field, List<string> fileNames, Dictionary<AssetID, byte[]> ids, int depth)
+        public void ReplaceReferences(AssetsFileInstance inst, AssetFileInfoEx inf, long pathId)
         {
-            string p = new string(' ', depth);
-            foreach (AssetTypeValueField child in field.pChildren)
-            {
-                //Console.WriteLine(p + child.templateField.type + " " + child.templateField.name);
-                if (!child.templateField.hasValue)
-                {
-                    if (child == null)
-                        return;
-                    string typeName = child.templateField.type;
-                    if (typeName.StartsWith("PPtr<") && typeName.EndsWith(">") && child.childrenCount == 2)
-                    {
-                        int fileId = child.Get("m_FileID").GetValue().AsInt();
-                        long pathId = child.Get("m_PathID").GetValue().AsInt64();
-
-                        if (pathId == 0)
-                            continue;
-
-                        AssetsFileInstance depInst = null;
-                        if (fileId == 0)
-                        {
-                            depInst = inst;
-                        }
-                        else
-                        {
-                            if (inst.dependencies.Count > 0 && inst.dependencies[0] == null)
-                                Console.WriteLine("dependency null for " + inst.name);
-                            depInst = inst.dependencies[fileId - 1];
-                        }
-
-                        string depName = depInst.name;
-                        if (!fileNames.Contains(depName))
-                        {
-                            fileNames.Add(depName);
-                        }
-
-                        AssetID id = new AssetID(depInst.name, pathId);
-                        if (!ids.ContainsKey(id))
-                        {
-                            AssetsManager.AssetExternal depExt = am.GetExtAsset(inst, child);
-                            AssetFileInfoEx depInfo = depExt.info;
-
-                            if (depInfo.curFileType == 1 ||
-                                depInfo.curFileType == 4 ||
-                                depInfo.curFileType == 21 ||
-                                depInfo.curFileType == 23 ||
-                                depInfo.curFileType == 28 ||
-                                depInfo.curFileType == 33 ||
-                                depInfo.curFileType == 43 ||
-                                depInfo.curFileType == 48 ||
-                                depInfo.curFileType == 212 ||
-                                depInfo.curFileType == 213)
-                            {
-                                ids.Add(id, null);
-                                AssetTypeValueField depBaseField;
-                                if (depInfo.curFileType != 0x72)
-                                    depBaseField = depExt.instance.GetBaseField();
-                                else
-                                    depBaseField = am.GetMonoBaseFieldCached(depExt.file, depInfo, Path.Combine(Path.GetDirectoryName(inst.path), "Managed"));
-
-                                RecurseType(am, depInst, depInfo, depBaseField, fileNames, ids, 0);
-                            }
-                        }
-                        //make fileId negative to mark for replacement
-                        //we do the changes here since we're already iterating over each field
-                        child.Get("m_FileID").GetValue().Set(-fileNames.IndexOf(depName));
-                    }
-                    RecurseType(am, inst, info, child, fileNames, ids, depth + 1);
-                }
-            }
-            if (depth == 0)
-            {
-                byte[] assetData;
-                if (info.curFileType == 28)
-                {
-                    assetData = FixTexture2DFast(inst, info);
-                }
-                else
-                {
-                    using (MemoryStream ms = new MemoryStream())
-                    using (AssetsFileWriter w = new AssetsFileWriter(ms))
-                    {
-                        w.bigEndian = false;
-                        field.Write(w);
-                        assetData = ms.ToArray();
-                    }
-                }
-                AssetID thisId = new AssetID(inst.name, (long)info.index);
-                ids[thisId] = assetData;
-            }
-        }
-        private static byte[] FixTexture2DFast(AssetsFileInstance inst, AssetFileInfoEx inf)
-        {
-            AssetsFileReader r = inst.file.reader;
-            r.Position = inf.absoluteFilePos;
-            r.Position += (ulong)r.ReadInt32() + 4;
-            r.Align();
-            r.Position += 0x48;
-            r.Position += (ulong)r.ReadInt32() + 4;
-            r.Align();
-            r.Position += 0x8;
-            ulong filePathPos = r.Position;
-            int assetLengthMinusFP = (int)(filePathPos - inf.absoluteFilePos);
-            string filePath = r.ReadCountStringInt32();
-            string directory = Path.GetDirectoryName(inst.path);
-            string fixedPath = Path.Combine(directory, filePath);
-
-            byte[] newData = new byte[assetLengthMinusFP + 4 + fixedPath.Length];
-            r.Position = inf.absoluteFilePos;
-            //imo easier to write it with binary writer than manually copy the bytes
+            AssetTypeValueField baseField = am.GetATI(inst.file, inf).GetBaseField();
+            ReplaceReferencesRecurse(inst, baseField, inf);
+            FixAsset(inst, baseField, inf);
+            byte[] baseFieldData;
             using (MemoryStream ms = new MemoryStream())
             using (AssetsFileWriter w = new AssetsFileWriter(ms))
             {
                 w.bigEndian = false;
-                w.Write(r.ReadBytes(assetLengthMinusFP));
-                w.WriteCountStringInt32(fixedPath);
-                return ms.ToArray();
+                baseField.Write(w);
+                baseFieldData = ms.ToArray();
             }
+            AssetsReplacer replacer = new AssetsReplacerFromMemory(0, (ulong)pathId, (int)inf.curFileType, 0xFFFF, baseFieldData);
+            if (IsAsset(inf))
+                assetReplacers.Add(replacer);
+            else
+                sceneReplacers.Add(replacer);
         }
-        private static void RecurseTypeReplace(AssetsManager am, AssetsFileInstance inst, AssetFileInfoEx info, AssetTypeValueField field, List<string> fileNames, Dictionary<AssetID, byte[]> ids, Dictionary<AssetID, long> aidToPid, Dictionary<long, long> gidToMid, int depth)
+        public void AddReference(AssetID aid, bool isAsset)
         {
-            string p = new string(' ', depth);
+            string name = isAsset ? ASSET_LEVEL_NAME : SCENE_LEVEL_NAME;
+            int id = isAsset ? assetId : sceneId;
+            AssetID newAid = new AssetID(name, id);
+            references.Add(aid, newAid);
+            if (isAsset) assetId++; else sceneId++;
+        }
+        private void FindReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
+        {
             foreach (AssetTypeValueField child in field.pChildren)
             {
-                //Console.WriteLine(p + child.templateField.type + " " + child.templateField.name);
+                //not a value (ie int)
                 if (!child.templateField.hasValue)
                 {
+                    //not null
                     if (child == null)
                         return;
+                    //not array of values either
+                    if (child.templateField.isArray && child.templateField.children[1].valueType != EnumValueTypes.ValueType_None)
+                        break;
                     string typeName = child.templateField.type;
+                    //is a pptr
                     if (typeName.StartsWith("PPtr<") && typeName.EndsWith(">") && child.childrenCount == 2)
                     {
                         int fileId = child.Get("m_FileID").GetValue().AsInt();
                         long pathId = child.Get("m_PathID").GetValue().AsInt64();
 
-                        if (pathId == 0) //removed asset
+                        //not a null pptr
+                        if (pathId == 0)
                             continue;
-                        if (fileId > 0)
-                            throw new Exception("file id was not set correctly!");
 
-                        fileId = -fileId;
-                        string fileName = fileNames[fileId];
+                        AssetID aid = ConvertToAssetID(inst, fileId, pathId);
 
-                        AssetID actualId = new AssetID(fileName, pathId);
-                        if (!aidToPid.ContainsKey(actualId))
+                        AssetsManager.AssetExternal ext = am.GetExtAsset(inst, fileId, pathId);
+
+                        //not already visited and not a gameobject or monobehaviour
+                        if (references.ContainsKey(aid) || ext.info.curFileType == 0x01 || ext.info.curFileType == 0x72)
+                            continue;
+
+                        AddReference(aid, IsAsset(ext.info));
+
+                        //recurse through dependencies
+                        FindReferencesRecurse(ext.file, ext.instance.GetBaseField(), ext.info);
+                    }
+                    FindReferencesRecurse(inst, child, inf);
+                }
+            }
+        }
+        private void ReplaceReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
+        {
+            foreach (AssetTypeValueField child in field.pChildren)
+            {
+                //not a value (ie int)
+                if (!child.templateField.hasValue)
+                {
+                    //not null
+                    if (child == null)
+                        return;
+                    //not array of values either
+                    if (child.templateField.isArray && child.templateField.children[1].valueType != EnumValueTypes.ValueType_None)
+                        break;
+                    string typeName = child.templateField.type;
+                    //is a pptr
+                    if (typeName.StartsWith("PPtr<") && typeName.EndsWith(">") && child.childrenCount == 2)
+                    {
+                        int fileId = child.Get("m_FileID").GetValue().AsInt();
+                        long pathId = child.Get("m_PathID").GetValue().AsInt64();
+
+                        //not a null pptr
+                        if (pathId == 0)
+                            continue;
+
+                        AssetID aid = ConvertToAssetID(inst, fileId, pathId);
+                        //not already visited
+                        if (references.ContainsKey(aid))
                         {
-                            Console.WriteLine("WARNING: MISSING ID FOR " + actualId.fileName + " " + actualId.pathId + " ON " + inst.name + " " + info.index);
-                            child.Get("m_PathID").GetValue().Set(0);
+                            AssetID id = references[aid];
+                            //normally, I would've just checked if the path names
+                            //matched up, but this is faster than looking up names
+                            //I check type of this asset and compare with the name
+                            //of the assetid to see if it should be itself or if
+                            //it should be the dependency file
+                            bool isSelfAsset = IsAsset(inf);
+                            bool isDepAsset = id.fileName == ASSET_LEVEL_NAME;
+                            int newFileId = isDepAsset ^ isSelfAsset ? 1 : 0;
+
+                            child.Get("m_FileID").GetValue().Set(newFileId);
+                            child.Get("m_PathID").GetValue().Set(id.pathId);
                         }
                         else
                         {
-                            child.Get("m_PathID").GetValue().Set(aidToPid[actualId]);
+                            child.Get("m_FileID").GetValue().Set(0);
+                            child.Get("m_PathID").GetValue().Set(0);
                         }
-                        child.Get("m_FileID").GetValue().Set(0);
                     }
-                    RecurseTypeReplace(am, inst, info, child, fileNames, ids, aidToPid, gidToMid, depth + 1);
+                    ReplaceReferencesRecurse(inst, child, inf);
                 }
-            }
-            if (depth == 0)
-            {
-                byte[] assetData;
-                if (info.curFileType == 1)
-                {
-                    assetData = FixGameObjectFast(inst, info, field, (ulong)gidToMid[(long)info.index]);
-                }
-                else
-                {
-                    using (MemoryStream ms = new MemoryStream())
-                    using (AssetsFileWriter w = new AssetsFileWriter(ms))
-                    {
-                        w.bigEndian = false;
-                        field.Write(w);
-                        assetData = ms.ToArray();
-                    }
-                }
-                AssetID thisId = new AssetID(inst.name, (long)info.index);
-                ids[thisId] = assetData;
             }
         }
-        //this one has to work differently since we already modified the value field
-        //so we save it to a stream and read from it manually so it works faster
-        //note it may be better to loop through all objects but this would be slower
-        //in the future, all components should be added so we won't need this
-        private static byte[] FixGameObjectFast(AssetsFileInstance inst, AssetFileInfoEx inf, AssetTypeValueField field, ulong editDifferPid)
+
+        private AssetID ConvertToAssetID(AssetsFileInstance inst, int fileId, long pathId)
         {
-            //dump current data to ms
-            using (MemoryStream fms = new MemoryStream())
-            using (AssetsFileWriter fw = new AssetsFileWriter(fms))
+            string fileName;
+            if (fileId == 0)
+                fileName = inst.path;
+            else
+                fileName = inst.dependencies[fileId - 1].path;
+            return new AssetID(fileName, pathId);
+        }
+
+        private void FixAsset(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
+        {
+            if (inf.curFileType == 0x01) //fix gameobject
             {
-                fw.bigEndian = false;
-                field.Write(fw);
-                fms.Position = 0;
-
-                AssetsFileReader r = new AssetsFileReader(fms);
-                r.bigEndian = false;
-                int componentSize = r.ReadInt32();
-                List<AssetPPtr> pptrs = new List<AssetPPtr>();
-                for (int i = 0; i < componentSize; i++)
-                {
-                    int fileId = r.ReadInt32();
-                    long pathId = r.ReadInt64();
-                
-                    //this gets rid of assets that have no reference
-                    if (!(fileId == 0 && pathId == 0))
-                    {
-                        pptrs.Add(new AssetPPtr((uint)fileId, (ulong)pathId));
-                    }
-                }
-                //add reference to EditDiffer mb
-                pptrs.Add(new AssetPPtr(0, editDifferPid));
-
-                int assetLengthMinusCP = (int)(inf.curFileSize - 4 - (componentSize * 12));
-
-                using (MemoryStream ms = new MemoryStream())
-                using (AssetsFileWriter w = new AssetsFileWriter(ms))
-                {
-                    w.bigEndian = false;
-                    w.Write(pptrs.Count);
-                    foreach (AssetPPtr pptr in pptrs)
-                    {
-                        w.Write(pptr.fileID);
-                        w.Write(pptr.pathID);
-                    }
-                    w.Write(r.ReadBytes(assetLengthMinusCP));
-                    return ms.ToArray();
-                }
+                AssetTypeValueField Array = field.Get("m_Component").Get("Array");
+                AssetTypeValueField[] newFields = Array.pChildren.Where(f =>
+                    f.pChildren[0].pChildren[1].GetValue().AsInt64() != 0
+                ).ToArray();
+                uint newSize = (uint)newFields.Length;
+                Array.SetChildrenList(newFields, newSize);
+                Array.GetValue().Set(new AssetTypeArray() { size = newSize });
             }
+            else if (inf.curFileType == 0x1c) //fix texture2d
+            {
+                AssetTypeValueField path = field.Get("m_StreamData").Get("path");
+                string pathString = path.GetValue().AsString();
+                string directory = Path.GetDirectoryName(inst.path);
+                string fixedPath = Path.Combine(directory, pathString);
+                path.GetValue().Set(fixedPath);
+            }
+            else if (inf.curFileType == 0x53) //fix audioclip
+            {
+                AssetTypeValueField path = field.Get("m_Resource").Get("m_Source");
+                string pathString = path.GetValue().AsString();
+                string directory = Path.GetDirectoryName(inst.path);
+                string fixedPath = Path.Combine(directory, pathString);
+                path.GetValue().Set(fixedPath);
+            }
+        }
+
+        private bool IsAsset(AssetFileInfoEx inf)
+        {
+            return inf.curFileType == 0x1c || inf.curFileType == 0x30 || inf.curFileType == 0x53;
         }
     }
 }

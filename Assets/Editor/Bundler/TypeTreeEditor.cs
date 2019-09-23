@@ -75,7 +75,6 @@ namespace Assets.Bundler
             }
 
             field.index = curIndex;
-            UnityEngine.Debug.Log("inserting " + GetString(field.typeStringOffset) + " " + GetString(field.nameStringOffset) + " into " + field.index);
 
             //TypeField_0D[] before = new TypeField_0D[curIndex];
             //TypeField_0D[] after = new TypeField_0D[type.pTypeFieldsEx.Length - curIndex];
@@ -163,7 +162,7 @@ namespace Assets.Bundler
                 depth = depth,
                 flags = (uint)flags,
                 index = index,
-                isArray = array,
+                isArray = (byte)(array ? 1 : 0),
                 nameStringOffset = fieldNamePos,
                 size = size,
                 typeStringOffset = typeNamePos,

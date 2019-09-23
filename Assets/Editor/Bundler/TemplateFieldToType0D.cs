@@ -36,7 +36,7 @@ namespace Assets.Bundler
             typeFields.Add(tf);
             tf.version = 1;
             tf.depth = (byte)depth;
-            tf.isArray = templateField.isArray;
+            tf.isArray = (byte)(templateField.isArray ? 1 : 0);
             tf.typeStringOffset = GetStringOffset(templateField.type);
             tf.nameStringOffset = GetStringOffset(templateField.name);
             tf.index = (uint)index++;

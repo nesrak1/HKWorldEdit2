@@ -1,32 +1,30 @@
-﻿using AssetsTools.NET;
+﻿/*using AssetsTools.NET;
 using AssetsTools.NET.Extra;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using UnityEditor;
 
 namespace Assets.Bundler
 {
-    public class Loader
+    public class LoaderOld
     {
         const string ver = "2017.4.10f1";
         const int hkweVersion = 1;
-        public static void GenerateLevelFiles(string levelPath)
+        public static byte[] CreateBundleFromLevel(string levelPath)
         {
             AssetsManager am = new AssetsManager();
             EditorUtility.DisplayProgressBar("HKEdit", "Loading class database...", 0f);
             am.LoadClassPackage("cldb.dat");
             am.useTemplateFieldCache = true;
             EditorUtility.DisplayProgressBar("HKEdit", "Reading assets files...", 0.5f);
-            GenerateLevelFiles(am, am.LoadAssetsFile(levelPath, true));
+            return CreateBundleFromLevel(am, am.LoadAssetsFile(levelPath, true));
         }
-
-        public static void GenerateLevelFiles(AssetsManager am, AssetsFileInstance inst)
+        
+        public static byte[] CreateBundleFromLevel(AssetsManager am, AssetsFileInstance inst)
         {
-            EditorUtility.DisplayProgressBar("HKEdit", "Reading files...", 0f);
+            EditorUtility.DisplayProgressBar("HKEdit", "Reading Files...", 0f);
             am.UpdateDependencies();
 
             //quicker asset id lookup
@@ -34,10 +32,11 @@ namespace Assets.Bundler
             {
                 AssetsFileInstance afi = am.files[i];
                 if (i % 100 == 0)
-                    EditorUtility.DisplayProgressBar("HKEdit", "Generating QLTs...", (float)i / am.files.Count);
+                    EditorUtility.DisplayProgressBar("HKEdit", "Generating QLTs", (float)i / am.files.Count);
                 afi.table.GenerateQuickLookupTree();
             }
 
+            //setup
             AssetsFile file = inst.file;
             AssetsFileTable table = inst.table;
 
@@ -45,177 +44,216 @@ namespace Assets.Bundler
 
             List<AssetFileInfoEx> infos = table.pAssetFileInfo.ToList();
 
-            ReferenceCrawler crawler = new ReferenceCrawler(am);
-            List<AssetFileInfoEx> initialGameObjects = table.GetAssetsOfType(0x01);
-            for (int i = 0; i < initialGameObjects.Count; i++)
-            {
-                AssetFileInfoEx inf = initialGameObjects[i];
-                if (i % 100 == 0)
-                    EditorUtility.DisplayProgressBar("HKEdit", "Recursing GameObject dependencies...", (float)i / initialGameObjects.Count);
-                crawler.AddReference(new AssetID(inst.path, (long)inf.index), false);
-                crawler.FindReferences(inst, inf);
-            }
-            Dictionary<AssetID, AssetID> glblToLcl = crawler.references;
+            List<string> fileNames = new List<string>();
+            Dictionary<AssetID, byte[]> deps = new Dictionary<AssetID, byte[]>();
 
+            fileNames.Add(inst.name);
+            
+            //add own ids to list so we don't reread them
+            foreach (AssetFileInfoEx info in infos)
+            {
+                if (info.curFileType != 1)
+                    continue;
+                AssetID id = new AssetID(inst.name, (long)info.index);
+                deps.Add(id, null);
+            }
+            
+            //look through each field in each asset in this file
+            for (int i = 0; i < infos.Count; i++)
+            {
+                AssetFileInfoEx info = infos[i];
+                if (info.curFileType != 1)
+                    continue;
+                if (i % 100 == 0)
+                    EditorUtility.DisplayProgressBar("HKEdit", "Crawling PPtrs", (float)i / infos.Count);
+                ReferenceCrawler.CrawlPPtrs(am, inst, info.index, fileNames, deps);
+            }
+
+            //add typetree data for dependencies
+            long curId = 1;
             List<Type_0D> types = new List<Type_0D>();
             List<string> typeNames = new List<string>();
-
-            Dictionary<string, AssetsFileInstance> fileToInst = am.files.ToDictionary(d => d.path);
-            int j = 0;
-            foreach (KeyValuePair<AssetID, AssetID> id in glblToLcl)
+            List<AssetsReplacer> assets = new List<AssetsReplacer>();
+            Dictionary<string, AssetsFileInstance> insts = new Dictionary<string, AssetsFileInstance>();
+            //asset id is our custom id that uses filename/pathid instead of fileid/pathid
+            //asset id to path id
+            Dictionary<AssetID, long> aidToPid = new Dictionary<AssetID, long>();
+            //script id to mono id
+            Dictionary<ScriptID, ushort> sidToMid = new Dictionary<ScriptID, ushort>();
+            uint lastId = 0;
+            ushort nextMonoId = 0;
+            int depCount = 0;
+            foreach (KeyValuePair<AssetID, byte[]> dep in deps)
             {
-                if (j % 100 == 0)
-                    EditorUtility.DisplayProgressBar("HKEdit", "Rewiring asset pointers...", (float)j / glblToLcl.Count);
-                AssetsFileInstance depInst = fileToInst[id.Key.fileName];
-                AssetFileInfoEx depInf = depInst.table.getAssetInfo((ulong)id.Key.pathId);
-
-                ClassDatabaseType clType = AssetHelper.FindAssetClassByID(am.classFile, depInf.curFileType);
-                string clName = clType.name.GetString(am.classFile);
-                if (!typeNames.Contains(clName))
+                if (depCount % 100 == 0)
+                    EditorUtility.DisplayProgressBar("HKEdit", "Fixing Dependencies", (float)depCount / deps.Keys.Count);
+                AssetID id = dep.Key;
+                byte[] assetData = dep.Value;
+                AssetsFileInstance afInst = null;
+                if (insts.ContainsKey(id.fileName))
+                    afInst = insts[id.fileName];
+                else
+                    afInst = am.files.First(f => f.name == id.fileName);
+                if (afInst == null)
+                    continue;
+                AssetFileInfoEx inf = afInst.table.getAssetInfo((ulong)id.pathId);
+                if (lastId != inf.curFileType)
                 {
-                    Type_0D type0d = C2T5.Cldb2TypeTree(am.classFile, clName);
-                    type0d.classId = (int)depInf.curFileType;
-                    types.Add(type0d);
-                    typeNames.Add(clName);
+                    lastId = inf.curFileType;
                 }
 
-                crawler.ReplaceReferences(depInst, depInf, id.Value.pathId);
-                j++;
-            }
-
-            List<Type_0D> assetTypes = new List<Type_0D>()
-            {
-                C2T5.Cldb2TypeTree(am.classFile, 0x1c),
-                C2T5.Cldb2TypeTree(am.classFile, 0x30),
-                C2T5.Cldb2TypeTree(am.classFile, 0x53)
-            };
-
-            string origFileName = Path.GetFileNameWithoutExtension(inst.path);
-
-            string sceneGuid = CreateMD5(origFileName);
-            //string assetGuid = CreateMD5(origFileName + "-data");
-
-            string ExportedScenes = Path.Combine("Assets", "ExportedScenes");
-            //circumvents "!BeginsWithCaseInsensitive(file.pathName, AssetDatabase::kAssetsPathWithSlash)' assertion
-            string ExportedScenesData = "ExportedScenesData";
-
-            CreateMetaFile(sceneGuid, Path.Combine(ExportedScenes, origFileName + ".unity.meta"));
-            //CreateMetaFile(assetGuid, Path.Combine(ExportedScenes, origFileName + "-data.assets.meta"));
-
-            AssetsFile sceneFile = new AssetsFile(new AssetsFileReader(new MemoryStream(BundleCreator.CreateBlankAssets(ver, types))));
-            AssetsFile assetFile = new AssetsFile(new AssetsFileReader(new MemoryStream(BundleCreator.CreateBlankAssets(ver, assetTypes))));
-
-            byte[] sceneFileData;
-            using (MemoryStream ms = new MemoryStream())
-            using (AssetsFileWriter w = new AssetsFileWriter(ms))
-            {
-                w.bigEndian = false;
-                //unity won't load whole assets files by guid, so we have to use hardcoded paths
-                sceneFile.dependencies.pDependencies = new AssetsFileDependency[]
+                ClassDatabaseType clType = AssetHelper.FindAssetClassByID(am.classFile, inf.curFileType);
+                string clName = clType.name.GetString(am.classFile);
+                ushort monoIndex = 0xFFFF;
+                if (inf.curFileType != 0x72)
                 {
-                    CreateDependency(ExportedScenesData + "/" + origFileName + "-data.assets")
-                };
-                sceneFile.dependencies.dependencyCount = 1;
-                sceneFile.Write(w, 0, crawler.sceneReplacers.ToArray(), 0);
-                sceneFileData = ms.ToArray();
-            }
-            byte[] assetFileData;
-            using (MemoryStream ms = new MemoryStream())
-            using (AssetsFileWriter w = new AssetsFileWriter(ms))
-            {
-                w.bigEndian = false;
-                assetFile.Write(w, 0, crawler.assetReplacers.ToArray(), 0);
-                assetFileData = ms.ToArray();
+                    if (!typeNames.Contains(clName))
+                    {
+                        Type_0D type0d = C2T5.Cldb2TypeTree(am.classFile, clName);
+                        type0d.classId = (int)inf.curFileType; //?
+                        types.Add(type0d);
+                        typeNames.Add(clName);
+                    }
+                }
+                else
+                {
+                    //unused for now
+                    AssetTypeValueField baseField = am.GetATI(afInst.file, inf).GetBaseField();
+                    AssetTypeValueField m_Script = baseField.Get("m_Script");
+                    AssetTypeValueField scriptBaseField = am.GetExtAsset(afInst, m_Script).instance.GetBaseField();
+                    string m_ClassName = scriptBaseField.Get("m_ClassName").GetValue().AsString();
+                    string m_Namespace = scriptBaseField.Get("m_Namespace").GetValue().AsString();
+                    string m_AssemblyName = scriptBaseField.Get("m_AssemblyName").GetValue().AsString();
+                    ScriptID sid = new ScriptID(m_ClassName, m_Namespace, m_AssemblyName);
+                    if (!sidToMid.ContainsKey(sid))
+                    {
+                        MonoClass mc = new MonoClass();
+                        mc.Read(m_ClassName, Path.Combine(Path.Combine(Path.GetDirectoryName(inst.path), "Managed"), m_AssemblyName), afInst.file.header.format);
+
+                        Type_0D type0d = C2T5.Cldb2TypeTree(am.classFile, clName);
+                        TemplateFieldToType0D typeConverter = new TemplateFieldToType0D();
+
+                        TypeField_0D[] monoFields = typeConverter.TemplateToTypeField(mc.children, type0d);
+
+                        type0d.pStringTable = typeConverter.stringTable;
+                        type0d.stringTableLen = (uint)type0d.pStringTable.Length;
+                        type0d.scriptIndex = nextMonoId;
+                        type0d.pTypeFieldsEx = type0d.pTypeFieldsEx.Concat(monoFields).ToArray();
+                        type0d.typeFieldsExCount = (uint)type0d.pTypeFieldsEx.Length;
+                        
+                        types.Add(type0d);
+                        sidToMid.Add(sid, nextMonoId);
+                        nextMonoId++;
+                    }
+                    monoIndex = sidToMid[sid];
+                }
+                aidToPid.Add(id, curId);
+                AssetsReplacer rep = new AssetsReplacerFromMemory(0, (ulong)curId, (int)inf.curFileType, monoIndex, assetData);
+                assets.Add(rep);
+                curId++;
+                depCount++;
             }
 
-            File.WriteAllBytes(Path.Combine(ExportedScenes, origFileName + ".unity"), sceneFileData);
-            File.WriteAllBytes(Path.Combine(ExportedScenesData, origFileName + "-data.assets"), assetFileData);
+            byte[] blankData = BundleCreator.CreateBlankAssets(ver, types);
+            AssetsFile blankFile = new AssetsFile(new AssetsFileReader(new MemoryStream(blankData)));
+
+            EditorUtility.DisplayProgressBar("HKEdit", "Writing first file...", 0f);
+            byte[] data = null;
+            using (MemoryStream ms = new MemoryStream())
+            using (AssetsFileWriter writer = new AssetsFileWriter(ms))
+            {
+                blankFile.Write(writer, 0, assets.ToArray(), 0);
+                data = ms.ToArray();
+            }
+
+            //File.WriteAllBytes("debug.assets", data);
+
+            MemoryStream msn = new MemoryStream(data);
+            AssetsManager amn = new AssetsManager();
+            
+            amn.classFile = am.classFile;
+            AssetsFileInstance instn = amn.LoadAssetsFile(msn, ((FileStream)inst.file.reader.BaseStream).Name, false);
+
+            instn.table.GenerateQuickLookupTree();
+
+            deps.Clear();
+
+            List<AssetsReplacer> assetsn = new List<AssetsReplacer>();
+
+            //gameobject id to mono id
+            Dictionary<long, long> gidToMid = new Dictionary<long, long>();
+            long nextBehaviourId = (long)instn.table.pAssetFileInfo.Max(i => i.index) + 1;
+
+            CreateEditDifferTypeTree(amn.classFile, instn);
+            CreateSceneMetadataTypeTree(amn.classFile, instn);
+
+            Random rand = new Random();
+            rand.Next();
+            foreach (KeyValuePair<AssetID, long> kvp in aidToPid)
+            {
+                AssetFileInfoEx inf = instn.table.getAssetInfo((ulong)kvp.Value);
+                if (inf.curFileType == 0x01)
+                {
+                    gidToMid.Add(kvp.Value, nextBehaviourId);
+                    assetsn.Add(CreateEditDifferMonoBehaviour(kvp.Value, kvp.Key, nextBehaviourId++, rand));
+                }
+            }
+
+            for (int i = 0; i < instn.table.pAssetFileInfo.Length; i++)
+            {
+                AssetFileInfoEx inf = instn.table.pAssetFileInfo[i];
+                if (i % 100 == 0)
+                    EditorUtility.DisplayProgressBar("HKEdit", "Crawling PPtrs", (float)i / instn.table.pAssetFileInfo.Length);
+                ReferenceCrawler.CrawlReplacePPtrs(amn, instn, inf.index, fileNames, deps, aidToPid, gidToMid);
+            }
+
+            //add monoscript assets to preload table to make unity happy
+            List<AssetPPtr> preloadPptrs = new List<AssetPPtr>();
+            preloadPptrs.Add(new AssetPPtr(1, 11500000));
+            preloadPptrs.Add(new AssetPPtr(2, 11500000));
+            foreach (KeyValuePair<AssetID, byte[]> dep in deps)
+            {
+                AssetID id = dep.Key;
+                byte[] assetData = dep.Value;
+                long pid = id.pathId;
+
+                if (pid == 1)
+                    assetData = AddMetadataMonobehaviour(assetData, nextBehaviourId);
+
+                AssetFileInfoEx inf = instn.table.getAssetInfo((ulong)pid);
+                ushort monoId = instn.file.typeTree.pTypes_Unity5[inf.curFileTypeOrIndex].scriptIndex;
+                assetsn.Add(new AssetsReplacerFromMemory(0, (ulong)pid, (int)inf.curFileType, monoId, assetData));
+                if (inf.curFileType == 0x73)
+                    preloadPptrs.Add(new AssetPPtr(0, (ulong)pid));
+            }
+
+            List<long> usedIds = assetsn.Select(a => (long)a.GetPathID()).ToList();
+            //will break if no gameobjects but I don't really care at this point
+            assetsn.Add(CreateSceneMetadataMonoBehaviour(1, nextBehaviourId++, inst.name, usedIds));
+
+            instn.file.preloadTable.items = preloadPptrs.ToArray();
+            instn.file.preloadTable.len = (uint)instn.file.preloadTable.items.Length;
+
+            //add dependencies to monobehaviours
+            List<AssetsFileDependency> fileDeps = new List<AssetsFileDependency>();
+            AddScriptDependency(fileDeps, Constants.editDifferMsEditorScriptHash, Constants.editDifferLsEditorScriptHash);
+            AddScriptDependency(fileDeps, Constants.sceneMetadataMsEditorScriptHash, Constants.sceneMetadataLsEditorScriptHash);
+
+            instn.file.dependencies.pDependencies = fileDeps.ToArray();
+            instn.file.dependencies.dependencyCount = (uint)fileDeps.Count;
+
+            EditorUtility.DisplayProgressBar("HKEdit", "Writing second file...", 0f);
+            byte[] datan = null;
+            using (MemoryStream ms = new MemoryStream())
+            using (AssetsFileWriter writer = new AssetsFileWriter(ms))
+            {
+                instn.file.Write(writer, 0, assetsn.ToArray(), 0);
+                datan = ms.ToArray();
+            }
 
             EditorUtility.ClearProgressBar();
-        }
 
-        private static string CreateMD5(string input)
-        {
-            using (MD5 md5 = MD5.Create())
-            {
-                byte[] inputBytes = Encoding.UTF8.GetBytes(input);
-                byte[] hashBytes = md5.ComputeHash(inputBytes);
-
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < hashBytes.Length; i++)
-                {
-                    sb.Append(hashBytes[i].ToString("x2"));
-                }
-                return sb.ToString();
-            }
-        }
-
-        private static void CreateMetaFile(string guid, string path)
-        {
-            File.WriteAllText(path, @"fileFormatVersion: 2
-guid: " + guid + @"
-DefaultImporter:
-  externalObjects: {}
-  userData: 
-  assetBundleName: 
-  assetBundleVariant: 
-");
-        }
-
-        private static AssetsFileDependency CreateDependency(string path)
-        {
-            return new AssetsFileDependency()
-            {
-                guid = new AssetsFileDependency.GUID128()
-                {
-                    mostSignificant = 0,
-                    leastSignificant = 0
-                },
-                type = 0,
-                assetPath = path,
-                bufferedPath = "",
-            };
-        }
-
-        //doesn't work I guess?
-        private static AssetsFileDependency CreateDependencyByGuid(string hash)
-        {
-            byte[] mostSigBytes = StringToByteArrayFastFlip(hash.Substring(0, 16));
-            byte[] leastSigBytes = StringToByteArrayFastFlip(hash.Substring(16, 16));
-            long mostSignificant = BitConverter.ToInt64(mostSigBytes, 0);
-            long leastSignificant = BitConverter.ToInt64(leastSigBytes, 0);
-            return new AssetsFileDependency()
-            {
-                guid = new AssetsFileDependency.GUID128()
-                {
-                    mostSignificant = mostSignificant,
-                    leastSignificant = leastSignificant
-                },
-                type = 2, //2 or 3?
-                assetPath = "",
-                bufferedPath = "",
-            };
-        }
-
-        private static byte[] StringToByteArrayFastFlip(string hex)
-        {
-            if (hex.Length % 2 == 1)
-                return new byte[16];
-
-            byte[] arr = new byte[hex.Length >> 1];
-
-            for (int i = 0; i < hex.Length >> 1; ++i)
-            {
-                arr[i] = (byte)((GetHexVal(hex[(i << 1) + 1]) << 4) + (GetHexVal(hex[i << 1])));
-            }
-
-            return arr;
-        }
-
-        private static int GetHexVal(char hex)
-        {
-            int val = hex;
-            return val - (val < 58 ? 48 : 55);
+            return datan;
         }
 
         public static AssetTypeValueField GetBaseField(AssetsManager am, AssetsFile file, AssetFileInfoEx info)
@@ -394,7 +432,7 @@ DefaultImporter:
                 w.Write(mbPid);
                 w.Write(0);
                 w.Align();
-                w.WriteCountStringInt32(" <//Hkwe Scene Metadata//>");
+                w.WriteCountStringInt32("<//Hkwe Scene Metadata//>");
                 w.Align();
                 w.Write((ushort)0);
                 w.Write((byte)1);
@@ -450,7 +488,7 @@ DefaultImporter:
             editor.AddField(baseField, editor.CreateTypeField("UInt8", "newAsset", 1, 1, 0, true));
             editor.AddField(baseField, editor.CreateTypeField("int", "instanceId", 1, 4, 0, false));
             type = editor.SaveType();
-
+            
             inst.file.typeTree.pTypes_Unity5 = inst.file.typeTree.pTypes_Unity5.Concat(new Type_0D[] { type }).ToArray();
             inst.file.typeTree.fieldCount++;
         }
@@ -477,9 +515,72 @@ DefaultImporter:
             editor.AddField(editor.type.pTypeFieldsEx[Array2], editor.CreateTypeField("SInt64", "data", 3, 8, 0, false));
             editor.AddField(baseField, editor.CreateTypeField("int", "hkweVersion", 1, 4, 0, false));
             type = editor.SaveType();
-
+            
             inst.file.typeTree.pTypes_Unity5 = inst.file.typeTree.pTypes_Unity5.Concat(new Type_0D[] { type }).ToArray();
             inst.file.typeTree.fieldCount++;
         }
     }
+
+    public class AssetID
+    {
+        public string fileName;
+        public long pathId;
+        public AssetID(string fileName, long pathId)
+        {
+            this.fileName = fileName;
+            this.pathId = pathId;
+        }
+        public override bool Equals(object obj)
+        {
+            if (obj.GetType() != typeof(AssetID))
+                return false;
+            AssetID assetID = obj as AssetID;
+            if (fileName == assetID.fileName &&
+                pathId == assetID.pathId)
+                return true;
+            return false;
+        }
+        public override int GetHashCode()
+        {
+            int hash = 17;
+
+            hash = hash * 23 + fileName.GetHashCode();
+            hash = hash * 23 + pathId.GetHashCode();
+            return hash;
+        }
+    }
+
+    public class ScriptID
+    {
+        public string scriptName;
+        public string scriptNamespace;
+        public string scriptFileName;
+        public ScriptID(string scriptName, string scriptNamespace, string scriptFileName)
+        {
+            this.scriptName = scriptName;
+            this.scriptNamespace = scriptNamespace;
+            this.scriptFileName = scriptFileName;
+        }
+        public override bool Equals(object obj)
+        {
+            if (obj.GetType() != typeof(ScriptID))
+                return false;
+            ScriptID scriptID = obj as ScriptID;
+            if (scriptName == scriptID.scriptName &&
+                scriptNamespace == scriptID.scriptNamespace &&
+                scriptFileName == scriptID.scriptFileName)
+                return true;
+            return false;
+        }
+        public override int GetHashCode()
+        {
+            int hash = 17;
+
+            hash = hash * 23 + scriptName.GetHashCode();
+            hash = hash * 23 + scriptNamespace.GetHashCode();
+            hash = hash * 23 + scriptFileName.GetHashCode();
+            return hash;
+        }
+    }
 }
+*/
