@@ -14,8 +14,10 @@ public class EditDifferEditor : Editor
     SerializedProperty pathId;
     SerializedProperty origPathId;
     SerializedProperty newAsset;
+    SerializedProperty componentIds;
     GUIStyle wrapStyle;
     GUIContent newAssetLabel;
+    GUIContent compIdsLabel;
 
     void OnEnable()
     {
@@ -23,6 +25,7 @@ public class EditDifferEditor : Editor
         pathId = serializedObject.FindProperty("pathId");
         origPathId = serializedObject.FindProperty("origPathId");
         newAsset = serializedObject.FindProperty("newAsset");
+        componentIds = serializedObject.FindProperty("componentIds");
         if (wrapStyle == null)
         {
             wrapStyle = new GUIStyle(EditorStyles.label);
@@ -31,6 +34,10 @@ public class EditDifferEditor : Editor
         if (newAssetLabel == null)
         {
             newAssetLabel = new GUIContent("New Asset?");
+        }
+        if (compIdsLabel == null)
+        {
+            compIdsLabel = new GUIContent("Component IDs");
         }
     }
 
@@ -42,6 +49,13 @@ public class EditDifferEditor : Editor
             {
                 EditDiffer.usedIds.Remove(((EditDiffer)target).pathId);
             }
+            //else if (Event.current.type == EventType.Repaint)
+            //{
+            //    if (componentIds.arraySize != ((EditDiffer)target).gameObject.GetComponents<Component>().Length - 1)
+            //    {
+            //        componentIds.DeleteArrayElementAtIndex()
+            //    }
+            //}
         }
     }
 
@@ -58,6 +72,7 @@ public class EditDifferEditor : Editor
             EditorGUILayout.PropertyField(origPathId);
         }
         EditorGUILayout.PropertyField(newAsset, newAssetLabel);
+        EditorGUILayout.PropertyField(componentIds, compIdsLabel, true);
         GUI.enabled = true;
         serializedObject.ApplyModifiedProperties();
     }

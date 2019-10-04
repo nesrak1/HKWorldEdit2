@@ -76,12 +76,6 @@ namespace Assets.Bundler
 
             field.index = curIndex;
 
-            //TypeField_0D[] before = new TypeField_0D[curIndex];
-            //TypeField_0D[] after = new TypeField_0D[type.pTypeFieldsEx.Length - curIndex];
-            //Array.Copy(type.pTypeFieldsEx, 0, before, 0, before.Length);
-            //Array.Copy(type.pTypeFieldsEx, before.Length, after, 0, after.Length);
-            //type.pTypeFieldsEx = before.Concat(new[] { field }).Concat(after).ToArray();
-
             uint insertIndex = curIndex;
 
             TypeField_0D[] dest = new TypeField_0D[type.pTypeFieldsEx.Length + 1];
@@ -214,7 +208,6 @@ namespace Assets.Bundler
         private void NullToDict(Dictionary<string, uint> dict, ref uint pos, string strTable)
         {
             string[] table = strTable.Split('\0');
-            UnityEngine.Debug.Log("#" + strTable.Replace('\0','.'));
             foreach (string entry in table)
             {
                 if (entry != "")

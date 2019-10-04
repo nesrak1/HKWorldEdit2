@@ -5,17 +5,14 @@ using UnityEngine;
 [InitializeOnLoad]
 public static class SplashStarter
 {
-    static bool openedYet = false;
     static SplashStarter()
     {
-        EditorApplication.update += () =>
-        {
-            if (!openedYet)
-            {
-                Splash.Open();
-                openedYet = true;
-            }
-        };
+        EditorApplication.update += Startup;
+    }
+    static void Startup()
+    {
+        EditorApplication.update -= Startup;
+        Splash.Open();
     }
 }
 

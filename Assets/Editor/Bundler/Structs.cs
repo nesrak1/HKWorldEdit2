@@ -6,6 +6,7 @@ using System.Text;
 
 namespace Assets.Bundler
 {
+    [Serializable]
     public class AssetID
     {
         public string fileName;
@@ -70,6 +71,14 @@ namespace Assets.Bundler
             hash = hash * 23 + scriptFileName.GetHashCode();
             return hash;
         }
+    }
+
+    public class EditDifferData
+    {
+        public int fileId;
+        public long pathId;
+        public long origPathId;
+        public bool newAsset;
     }
 
     public class BidirDictionary<T1, T2> : IEnumerable<KeyValuePair<T1, T2>>

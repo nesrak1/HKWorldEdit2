@@ -2,7 +2,6 @@
 
 public class Constants
 {
-    public static readonly byte[] editDifferScriptHash = new byte[] { 0xea, 0x71, 0x83, 0x05, 0xf1, 0x8b, 0xde, 0xea, 0x5e, 0x2c, 0xa7, 0xd8, 0x38, 0xb5, 0xe2, 0x1a };
     public static readonly uint[] editDifferScriptNEHash = new uint[] { 0x6eb46069, 0x5eda7d6c, 0xbfd0ce46, 0xadf887b5 };
     public static readonly uint[] sceneMetadataScriptNEHash = new uint[] { 0x993f3608, 0x2cc0f87e, 0xca6371c5, 0x4ed77624 };
     //315b6d2463669124586f57520d2ce601

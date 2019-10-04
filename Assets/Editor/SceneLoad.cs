@@ -9,7 +9,7 @@ using UnityEngine;
 
 public class SceneLoad
 {
-    [MenuItem("HKEdit/Load Scene", priority = 0)]
+    [MenuItem("HKEdit/Load Scene By File", priority = 0)]
     public static void CreateScene()
     {
         string path = EditorUtility.OpenFilePanel("Open level file", "", "");
@@ -45,7 +45,7 @@ public class SceneLoad
         }
     }
 
-    [MenuItem("HKEdit/Open Scene By Name", priority = 0)]
+    [MenuItem("HKEdit/Load Scene By Name", priority = 1)]
     public static void OpenSceneByName()
     {
         AssetsManager am = new AssetsManager();
@@ -63,7 +63,7 @@ public class SceneLoad
         {
             scenes.Add(sceneArray[i].GetValue().AsString() + "[" + i + "]");
         }
-        SceneSelector sel = SceneSelector.ShowDialog(am, scenes, gameDataPath);
+        SceneSelector.ShowDialog(am, scenes, gameDataPath);
     }
 
     private static string GetGamePath()
@@ -110,9 +110,10 @@ public class SceneSelector : EditorWindow
 
         if (selected != -1)
         {
-            string path = Path.Combine(gameDataPath, "level" + selected);
+            int oldSelected = selected;
+            selected = -1; //prevent error loop
+            string path = Path.Combine(gameDataPath, "level" + oldSelected);
             SceneLoad.OpenScene(path);
-            selected = -1;
         }
     }
 

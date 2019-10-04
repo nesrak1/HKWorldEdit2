@@ -13,25 +13,29 @@ namespace Assets.Bundler
         //we use two files to isolate textures, audioclips, shaders, etc. because unity will corrupt them
         const string SCENE_LEVEL_NAME = "editorscene"; //give a name to the memory bundle which has no file name
         const string ASSET_LEVEL_NAME = "editorasset";
-        int sceneId;
-        int assetId;
         public Dictionary<AssetID, AssetID> references; //game space to scene space
         public List<AssetsReplacer> sceneReplacers;
         public List<AssetsReplacer> assetReplacers;
+        public List<AssetsReplacer> sceneMonoReplacers;
         private AssetsManager am;
+        private Random rand;
+        private int sceneId;
+        private int assetId;
         public ReferenceCrawler(AssetsManager am)
         {
             this.am = am;
+            rand = new Random();
             sceneId = 1;
             assetId = 1;
             references = new Dictionary<AssetID, AssetID>();
             sceneReplacers = new List<AssetsReplacer>();
             assetReplacers = new List<AssetsReplacer>();
+            sceneMonoReplacers = new List<AssetsReplacer>();
         }
         public void FindReferences(AssetsFileInstance inst, AssetFileInfoEx inf)
         {
             AssetTypeValueField baseField = am.GetATI(inst.file, inf).GetBaseField();
-            FindReferencesRecurse(inst, baseField, inf);
+            FindReferencesRecurse(inst, baseField);
         }
         public void ReplaceReferences(AssetsFileInstance inst, AssetFileInfoEx inf, long pathId)
         {
@@ -49,8 +53,22 @@ namespace Assets.Bundler
             AssetsReplacer replacer = new AssetsReplacerFromMemory(0, (ulong)pathId, (int)inf.curFileType, 0xFFFF, baseFieldData);
             if (IsAsset(inf))
                 assetReplacers.Add(replacer);
+            else if (inf.curFileType == 0x72)
+                sceneMonoReplacers.Add(replacer);
             else
                 sceneReplacers.Add(replacer);
+        }
+        public void AddReplacer(byte[] data, int type, ushort monoType, bool isAsset)
+        {
+            int id = isAsset ? assetId : sceneId;
+            AssetsReplacer replacer = new AssetsReplacerFromMemory(0, (ulong)id, type, monoType, data);
+            if (IsAsset(type))
+                assetReplacers.Add(replacer);
+            else if (type == 0x72)
+                sceneMonoReplacers.Add(replacer);
+            else
+                sceneReplacers.Add(replacer);
+            if (isAsset) assetId++; else sceneId++;
         }
         public void AddReference(AssetID aid, bool isAsset)
         {
@@ -60,11 +78,11 @@ namespace Assets.Bundler
             references.Add(aid, newAid);
             if (isAsset) assetId++; else sceneId++;
         }
-        private void FindReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
+        private void FindReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field)
         {
             foreach (AssetTypeValueField child in field.pChildren)
             {
-                //not a value (ie int)
+                //not a value (ie not an int)
                 if (!child.templateField.hasValue)
                 {
                     //not null
@@ -95,9 +113,9 @@ namespace Assets.Bundler
                         AddReference(aid, IsAsset(ext.info));
 
                         //recurse through dependencies
-                        FindReferencesRecurse(ext.file, ext.instance.GetBaseField(), ext.info);
+                        FindReferencesRecurse(ext.file, ext.instance.GetBaseField());
                     }
-                    FindReferencesRecurse(inst, child, inf);
+                    FindReferencesRecurse(inst, child);
                 }
             }
         }
@@ -168,11 +186,18 @@ namespace Assets.Bundler
             if (inf.curFileType == 0x01) //fix gameobject
             {
                 AssetTypeValueField Array = field.Get("m_Component").Get("Array");
-                AssetTypeValueField[] newFields = Array.pChildren.Where(f =>
+                //remove all null pointers
+                List<AssetTypeValueField> newFields = Array.pChildren.Where(f =>
                     f.pChildren[0].pChildren[1].GetValue().AsInt64() != 0
-                ).ToArray();
-                uint newSize = (uint)newFields.Length;
-                Array.SetChildrenList(newFields, newSize);
+                ).ToList();
+
+                //add editdiffer monobehaviour
+                newFields.Add(CreatePPtrField(0, sceneId)); //this will be pathId that the below will go into
+                AssetID aid = ConvertToAssetID(inst, 0, (long)inf.index);
+                AddReplacer(CreateEditDifferMonoBehaviour(references[aid].pathId, Array, aid, rand), 0x72, 0x0000, false);
+
+                uint newSize = (uint)newFields.Count;
+                Array.SetChildrenList(newFields.ToArray(), newSize);
                 Array.GetValue().Set(new AssetTypeArray() { size = newSize });
             }
             else if (inf.curFileType == 0x1c) //fix texture2d
@@ -193,9 +218,83 @@ namespace Assets.Bundler
             }
         }
 
+        private byte[] CreateEditDifferMonoBehaviour(long goPid, AssetTypeValueField componentArray, AssetID origGoPptr, Random rand)
+        {
+            byte[] data;
+            using (MemoryStream ms = new MemoryStream())
+            using (AssetsFileWriter w = new AssetsFileWriter(ms))
+            {
+                w.bigEndian = false;
+                w.Write(0);
+                w.Write(goPid);
+                w.Write(1);
+                w.Write(2);
+                w.Write((long)11500000);
+                w.WriteCountStringInt32("");
+                w.Align();
+
+                w.Write(0);
+                w.Write(origGoPptr.pathId);
+                w.Write(origGoPptr.pathId);
+                w.Write(0);
+
+                uint componentArrayLength = componentArray.GetValue().AsArray().size;
+                w.Write(componentArrayLength);
+                for (uint i = 0; i < componentArrayLength; i++)
+                {
+                    AssetTypeValueField component = componentArray[i].Get("component");
+                    int m_FileID = component.Get("m_FileID").GetValue().AsInt();
+                    long m_PathID = component.Get("m_PathID").GetValue().AsInt64();
+                    if (m_PathID == 0) //removed (monobehaviour)
+                        w.Write((long)-1);
+                    else if (m_FileID == 0) //correct file
+                        w.Write(m_PathID);
+                    else //another file (shouldn't happen?)
+                        w.Write((long)0);
+                }
+
+                w.Write(0/*rand.Next()*/);
+                data = ms.ToArray();
+            }
+            return data;
+        }
+
+        //time to update the api I guess
+        private AssetTypeValueField CreatePPtrField(int fileId, long pathId)
+        {
+            AssetTypeTemplateField pptrTemp = new AssetTypeTemplateField();
+            pptrTemp.FromClassDatabase(am.classFile, AssetHelper.FindAssetClassByID(am.classFile, 0x01), 5); //[5] PPtr<Component> component
+            AssetTypeValueField fileVal = new AssetTypeValueField()
+            {
+                templateField = pptrTemp.children[0],
+                childrenCount = 0,
+                pChildren = null,
+                value = new AssetTypeValue(EnumValueTypes.ValueType_Int32, fileId)
+            };
+            AssetTypeValueField pathVal = new AssetTypeValueField()
+            {
+                templateField = pptrTemp.children[1],
+                childrenCount = 0,
+                pChildren = null,
+                value = new AssetTypeValue(EnumValueTypes.ValueType_Int64, pathId)
+            };
+            AssetTypeValueField pptrVal = new AssetTypeValueField()
+            {
+                templateField = pptrTemp,
+                childrenCount = 2,
+                pChildren = new AssetTypeValueField[] { fileVal, pathVal },
+                value = new AssetTypeValue(EnumValueTypes.ValueType_None, null)
+            };
+            return pptrVal;
+        }
+
         private bool IsAsset(AssetFileInfoEx inf)
         {
             return inf.curFileType == 0x1c || inf.curFileType == 0x30 || inf.curFileType == 0x53;
+        }
+        private bool IsAsset(int id)
+        {
+            return id == 0x1c || id == 0x30 || id == 0x53;
         }
     }
 }
