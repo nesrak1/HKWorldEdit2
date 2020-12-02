@@ -5,37 +5,43 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using UnityEngine;
 
 namespace Assets.Bundler
 {
-    public class ReferenceCrawler
+    //crawl dependencies for game files -> editor files
+    public class ReferenceCrawlerEditor
     {
         //we use two files to isolate textures, audioclips, shaders, etc. because unity will corrupt them
         const string SCENE_LEVEL_NAME = "editorscene"; //give a name to the memory bundle which has no file name
         const string ASSET_LEVEL_NAME = "editorasset";
-        public Dictionary<AssetID, AssetID> references; //game space to scene space
+        public Dictionary<AssetID, AssetID> references; //build space to editor space
         public List<AssetsReplacer> sceneReplacers;
         public List<AssetsReplacer> assetReplacers;
         public List<AssetsReplacer> sceneMonoReplacers;
+
+        private Dictionary<AssetID, Tk2dInfo> tk2dFromGoLookup; //gameobject to rect
+        private ushort tk2dSpriteScriptIndex;
+
         private AssetsManager am;
-        private Random rand;
         private int sceneId;
         private int assetId;
-        public ReferenceCrawler(AssetsManager am)
+        public ReferenceCrawlerEditor(AssetsManager am)
         {
             this.am = am;
-            rand = new Random();
             sceneId = 1;
             assetId = 1;
             references = new Dictionary<AssetID, AssetID>();
             sceneReplacers = new List<AssetsReplacer>();
             assetReplacers = new List<AssetsReplacer>();
             sceneMonoReplacers = new List<AssetsReplacer>();
+            tk2dFromGoLookup = new Dictionary<AssetID, Tk2dInfo>();
+            tk2dSpriteScriptIndex = 0xffff;
         }
-        public void FindReferences(AssetsFileInstance inst, AssetFileInfoEx inf)
+        public void SetReferences(AssetsFileInstance inst, AssetFileInfoEx inf)
         {
             AssetTypeValueField baseField = am.GetATI(inst.file, inf).GetBaseField();
-            FindReferencesRecurse(inst, baseField);
+            SetReferencesRecurse(inst, baseField);
         }
         public void ReplaceReferences(AssetsFileInstance inst, AssetFileInfoEx inf, long pathId)
         {
@@ -50,7 +56,7 @@ namespace Assets.Bundler
                 baseField.Write(w);
                 baseFieldData = ms.ToArray();
             }
-            AssetsReplacer replacer = new AssetsReplacerFromMemory(0, (ulong)pathId, (int)inf.curFileType, 0xFFFF, baseFieldData);
+            AssetsReplacer replacer = new AssetsReplacerFromMemory(0, pathId, (int)inf.curFileType, 0xFFFF, baseFieldData);
             if (IsAsset(inf))
                 assetReplacers.Add(replacer);
             else if (inf.curFileType == 0x72)
@@ -61,7 +67,7 @@ namespace Assets.Bundler
         public void AddReplacer(byte[] data, int type, ushort monoType, bool isAsset)
         {
             int id = isAsset ? assetId : sceneId;
-            AssetsReplacer replacer = new AssetsReplacerFromMemory(0, (ulong)id, type, monoType, data);
+            AssetsReplacer replacer = new AssetsReplacerFromMemory(0, id, type, monoType, data);
             if (IsAsset(type))
                 assetReplacers.Add(replacer);
             else if (type == 0x72)
@@ -78,9 +84,9 @@ namespace Assets.Bundler
             references.Add(aid, newAid);
             if (isAsset) assetId++; else sceneId++;
         }
-        private void FindReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field)
+        private void SetReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field)
         {
-            foreach (AssetTypeValueField child in field.pChildren)
+            foreach (AssetTypeValueField child in field.children)
             {
                 //not a value (ie not an int)
                 if (!child.templateField.hasValue)
@@ -104,7 +110,7 @@ namespace Assets.Bundler
 
                         AssetID aid = ConvertToAssetID(inst, fileId, pathId);
 
-                        AssetsManager.AssetExternal ext = am.GetExtAsset(inst, fileId, pathId);
+                        AssetExternal ext = am.GetExtAsset(inst, fileId, pathId);
 
                         //not already visited and not a gameobject or monobehaviour
                         if (references.ContainsKey(aid) || ext.info.curFileType == 0x01 || ext.info.curFileType == 0x72)
@@ -113,15 +119,15 @@ namespace Assets.Bundler
                         AddReference(aid, IsAsset(ext.info));
 
                         //recurse through dependencies
-                        FindReferencesRecurse(ext.file, ext.instance.GetBaseField());
+                        SetReferencesRecurse(ext.file, ext.instance.GetBaseField());
                     }
-                    FindReferencesRecurse(inst, child);
+                    SetReferencesRecurse(inst, child);
                 }
             }
         }
         private void ReplaceReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
         {
-            foreach (AssetTypeValueField child in field.pChildren)
+            foreach (AssetTypeValueField child in field.children)
             {
                 //not a value (ie int)
                 if (!child.templateField.hasValue)
@@ -162,6 +168,75 @@ namespace Assets.Bundler
                         }
                         else
                         {
+                            ///////////////
+                            AssetsFileInstance depInst = ConvertToInstance(inst, fileId);
+                            AssetFileInfoEx depInf = depInst.table.GetAssetInfo(pathId);
+                            if (depInf.curFileType == 0x72)
+                            {
+                                ushort scriptIndex = depInst.file.typeTree.unity5Types[depInf.curFileTypeOrIndex].scriptIndex;
+                                if (tk2dSpriteScriptIndex == 0xffff)
+                                {
+                                    AssetTypeValueField monoBase = am.GetATI(depInst.file, depInf).GetBaseField();
+                                    AssetExternal scriptBaseExt = am.GetExtAsset(depInst, monoBase.Get("m_Script"));
+                                    if (scriptBaseExt.instance != null)
+                                    {
+                                        AssetTypeValueField scriptBase = scriptBaseExt.instance.GetBaseField();
+                                        string scriptName = scriptBase.Get("m_ClassName").GetValue().AsString();
+                                        if (scriptName == "tk2dSprite")
+                                        {
+                                            tk2dSpriteScriptIndex = scriptIndex;
+                                        }
+                                    }
+                                }
+                                if (tk2dSpriteScriptIndex == depInst.file.typeTree.unity5Types[depInf.curFileTypeOrIndex].scriptIndex)
+                                {
+                                    string managedPath = Path.Combine(Path.GetDirectoryName(depInst.path), "Managed");
+                                    AssetTypeValueField spriteBase = am.GetMonoBaseFieldCached(depInst, depInf, managedPath);
+                                    int spriteId = spriteBase.Get("_spriteId").GetValue().AsInt();
+
+                                    AssetExternal colBaseExt = am.GetExtAsset(depInst, spriteBase.Get("collection"));
+                                    AssetsFileInstance colInst = colBaseExt.file;
+                                    AssetTypeValueField colBase = am.GetMonoBaseFieldCached(colInst, colBaseExt.info, managedPath);
+                                    AssetTypeValueField spriteDefinitions = colBase.Get("spriteDefinitions")[spriteId];
+
+                                    AssetTypeValueField positionsField = spriteDefinitions.Get("positions");
+                                    AssetTypeValueField uvsField = spriteDefinitions.Get("uvs");
+                                    AssetTypeValueField indicesField = spriteDefinitions.Get("indices");
+
+                                    Vector3[] positions = new Vector3[positionsField.GetChildrenCount()];
+                                    Vector2[] uvs = new Vector2[uvsField.GetChildrenCount()];
+                                    int[] indices = new int[indicesField.GetChildrenCount()];
+
+                                    for (int i = 0; i < positions.Length; i++)
+                                    {
+                                        AssetTypeValueField positionField = positionsField[i];
+                                        positions[i] = new Vector3()
+                                        {
+                                            x = positionField.Get("x").GetValue().AsFloat(),
+                                            y = positionField.Get("y").GetValue().AsFloat(),
+                                            z = positionField.Get("z").GetValue().AsFloat()
+                                        };
+                                    }
+                                    for (int i = 0; i < uvs.Length; i++)
+                                    {
+                                        AssetTypeValueField uvField = uvsField[i];
+                                        uvs[i] = new Vector2()
+                                        {
+                                            x = uvField.Get("x").GetValue().AsFloat(),
+                                            y = uvField.Get("y").GetValue().AsFloat()
+                                        };
+                                    }
+                                    for (int i = 0; i < indices.Length; i++)
+                                    {
+                                        AssetTypeValueField indexField = indicesField[i];
+                                        indices[i] = indexField.GetValue().AsInt();
+                                    }
+
+                                    AssetID thisAid = ConvertToAssetID(inst, 0, inf.index);
+                                    tk2dFromGoLookup[thisAid] = new Tk2dInfo(positions, uvs, indices);
+                                }
+                            }
+                            ///////////////
                             child.Get("m_FileID").GetValue().Set(0);
                             child.Get("m_PathID").GetValue().Set(0);
                         }
@@ -173,12 +248,15 @@ namespace Assets.Bundler
 
         private AssetID ConvertToAssetID(AssetsFileInstance inst, int fileId, long pathId)
         {
-            string fileName;
+            return new AssetID(ConvertToInstance(inst, fileId).path, pathId);
+        }
+
+        private AssetsFileInstance ConvertToInstance(AssetsFileInstance inst, int fileId)
+        {
             if (fileId == 0)
-                fileName = inst.path;
+                return inst;
             else
-                fileName = inst.dependencies[fileId - 1].path;
-            return new AssetID(fileName, pathId);
+                return inst.dependencies[fileId - 1];
         }
 
         private void FixAsset(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
@@ -187,17 +265,24 @@ namespace Assets.Bundler
             {
                 AssetTypeValueField Array = field.Get("m_Component").Get("Array");
                 //remove all null pointers
-                List<AssetTypeValueField> newFields = Array.pChildren.Where(f =>
-                    f.pChildren[0].pChildren[1].GetValue().AsInt64() != 0
+                List<AssetTypeValueField> newFields = Array.children.Where(f =>
+                    f.children[0].children[1].GetValue().AsInt64() != 0
                 ).ToList();
 
                 //add editdiffer monobehaviour
-                newFields.Add(CreatePPtrField(0, sceneId)); //this will be pathId that the below will go into
-                AssetID aid = ConvertToAssetID(inst, 0, (long)inf.index);
-                AddReplacer(CreateEditDifferMonoBehaviour(references[aid].pathId, Array, aid, rand), 0x72, 0x0000, false);
+                AssetID aid = ConvertToAssetID(inst, 0, inf.index);
 
-                uint newSize = (uint)newFields.Count;
-                Array.SetChildrenList(newFields.ToArray(), newSize);
+                newFields.Add(CreatePPtrField(0, sceneId)); //this will be pathId that the below will go into
+                AddReplacer(CreateEditDifferMonoBehaviour(references[aid].pathId, Array, aid), 0x72, 0x0000, false);
+
+                if (tk2dFromGoLookup.ContainsKey(aid))
+                {
+                    newFields.Add(CreatePPtrField(0, sceneId)); //ditto
+                    AddReplacer(CreateTk2DEmulatorMonoBehaviour(references[aid].pathId, tk2dFromGoLookup[aid]), 0x72, 0x0001, false);
+                }
+
+                int newSize = newFields.Count;
+                Array.SetChildrenList(newFields.ToArray());
                 Array.GetValue().Set(new AssetTypeArray() { size = newSize });
             }
             else if (inf.curFileType == 0x1c) //fix texture2d
@@ -218,7 +303,7 @@ namespace Assets.Bundler
             }
         }
 
-        private byte[] CreateEditDifferMonoBehaviour(long goPid, AssetTypeValueField componentArray, AssetID origGoPptr, Random rand)
+        private byte[] CreateEditDifferMonoBehaviour(long goPid, AssetTypeValueField componentArray, AssetID origGoPptr)
         {
             byte[] data;
             using (MemoryStream ms = new MemoryStream())
@@ -238,9 +323,9 @@ namespace Assets.Bundler
                 w.Write(origGoPptr.pathId);
                 w.Write(0);
 
-                uint componentArrayLength = componentArray.GetValue().AsArray().size;
+                int componentArrayLength = componentArray.GetValue().AsArray().size;
                 w.Write(componentArrayLength);
-                for (uint i = 0; i < componentArrayLength; i++)
+                for (int i = 0; i < componentArrayLength; i++)
                 {
                     AssetTypeValueField component = componentArray[i].Get("component");
                     int m_FileID = component.Get("m_FileID").GetValue().AsInt();
@@ -259,6 +344,52 @@ namespace Assets.Bundler
             return data;
         }
 
+        private byte[] CreateTk2DEmulatorMonoBehaviour(long goPid, Tk2dInfo tk2dInfo)
+        {
+            byte[] data;
+            using (MemoryStream ms = new MemoryStream())
+            using (AssetsFileWriter w = new AssetsFileWriter(ms))
+            {
+                w.bigEndian = false;
+                w.Write(0);
+                w.Write(goPid);
+                w.Write(1);
+                w.Write(3);
+                w.Write((long)11500000);
+                w.WriteCountStringInt32("");
+                w.Align();
+
+                w.Write(tk2dInfo.positions.Length);
+                for (int i = 0; i < tk2dInfo.positions.Length; i++)
+                {
+                    Vector3 position = tk2dInfo.positions[i];
+                    w.Write(position.x);
+                    w.Write(position.y);
+                    w.Write(position.z);
+                }
+                w.Align();
+
+                w.Write(tk2dInfo.uvs.Length);
+                for (int i = 0; i < tk2dInfo.uvs.Length; i++)
+                {
+                    Vector3 uv = tk2dInfo.uvs[i];
+                    w.Write(uv.x);
+                    w.Write(uv.y);
+                }
+                w.Align();
+
+                w.Write(tk2dInfo.indices.Length);
+                for (int i = 0; i < tk2dInfo.indices.Length; i++)
+                {
+                    w.Write(tk2dInfo.indices[i]);
+                }
+                w.Align();
+
+                data = ms.ToArray();
+            }
+            return data;
+        }
+
         //time to update the api I guess
         private AssetTypeValueField CreatePPtrField(int fileId, long pathId)
         {
@@ -268,21 +399,21 @@ namespace Assets.Bundler
             {
                 templateField = pptrTemp.children[0],
                 childrenCount = 0,
-                pChildren = null,
+                children = null,
                 value = new AssetTypeValue(EnumValueTypes.ValueType_Int32, fileId)
             };
             AssetTypeValueField pathVal = new AssetTypeValueField()
             {
                 templateField = pptrTemp.children[1],
                 childrenCount = 0,
-                pChildren = null,
+                children = null,
                 value = new AssetTypeValue(EnumValueTypes.ValueType_Int64, pathId)
             };
             AssetTypeValueField pptrVal = new AssetTypeValueField()
             {
                 templateField = pptrTemp,
                 childrenCount = 2,
-                pChildren = new AssetTypeValueField[] { fileVal, pathVal },
+                children = new AssetTypeValueField[] { fileVal, pathVal },
                 value = new AssetTypeValue(EnumValueTypes.ValueType_None, null)
             };
             return pptrVal;

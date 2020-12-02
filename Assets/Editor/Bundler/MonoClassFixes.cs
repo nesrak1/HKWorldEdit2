@@ -12,19 +12,19 @@ namespace Assets.Bundler
         public static AssetTypeValueField GetMonoBaseFieldCached(this AssetsManager am, AssetsFileInstance inst, AssetFileInfoEx info, string managedPath, List<string> fileNames, Dictionary<AssetID, long> aidToPid)
         {
             AssetsFile file = inst.file;
-            ushort scriptIndex = file.typeTree.pTypes_Unity5[info.curFileTypeOrIndex].scriptIndex;
+            ushort scriptIndex = file.typeTree.unity5Types[info.curFileTypeOrIndex].scriptIndex;
             if (scriptIndex != 0xFFFF && inst.templateFieldCache.ContainsKey(scriptIndex))
             {
                 AssetTypeTemplateField baseTemplateField = inst.templateFieldCache[scriptIndex];
-                AssetTypeInstance baseAti = new AssetTypeInstance(baseTemplateField, file.reader, false, info.absoluteFilePos);
+                AssetTypeInstance baseAti = new AssetTypeInstance(baseTemplateField, file.reader, info.absoluteFilePos);
                 return baseAti.GetBaseField();
             }
             else
             {
                 AssetTypeTemplateField baseField = new AssetTypeTemplateField();
                 baseField.FromClassDatabase(am.classFile, AssetHelper.FindAssetClassByID(am.classFile, info.curFileType), 0);
-                AssetTypeInstance mainAti = new AssetTypeInstance(baseField, file.reader, false, info.absoluteFilePos);
-                if (file.typeTree.pTypes_Unity5[info.curFileTypeOrIndex].scriptIndex != 0xFFFF)
+                AssetTypeInstance mainAti = new AssetTypeInstance(baseField, file.reader, info.absoluteFilePos);
+                if (file.typeTree.unity5Types[info.curFileTypeOrIndex].scriptIndex != 0xFFFF)
                 {
                     AssetTypeValueField m_Script = mainAti.GetBaseField().Get("m_Script");
                     int m_ScriptFileId = m_Script.Get("m_FileID").GetValue().AsInt();
@@ -38,15 +38,15 @@ namespace Assets.Bundler
                     Console.WriteLine("checking " + scriptName + " in " + assemblyName + " from id " + info.index);
                     if (File.Exists(assemblyPath))
                     {
-                        MonoClass mc = new MonoClass();
+                        MonoDeserializer mc = new MonoDeserializer();
                         mc.Read(scriptName, assemblyPath, inst.file.header.format);
-                        AssetTypeTemplateField[] monoTemplateFields = mc.children;
+                        List<AssetTypeTemplateField> monoTemplateFields = mc.children;
 
                         AssetTypeTemplateField[] templateField = baseField.children.Concat(monoTemplateFields).ToArray();
                         baseField.children = templateField;
-                        baseField.childrenCount = (uint)baseField.children.Length;
+                        baseField.childrenCount = baseField.children.Length;
 
-                        mainAti = new AssetTypeInstance(baseField, file.reader, false, info.absoluteFilePos);
+                        mainAti = new AssetTypeInstance(baseField, file.reader, info.absoluteFilePos);
                     }
                 }
 
@@ -55,9 +55,9 @@ namespace Assets.Bundler
                 return baseValueField;
             }
         }
-        public static AssetsManager.AssetExternal GetExtAsset(this AssetsManager am, AssetsFileInstance relativeTo, int fileId, long pathId, bool onlyGetInfo = false)
+        public static AssetExternal GetExtAsset(this AssetsManager am, AssetsFileInstance relativeTo, int fileId, long pathId, bool onlyGetInfo = false)
         {
-            AssetsManager.AssetExternal ext = new AssetsManager.AssetExternal();
+            AssetExternal ext = new AssetExternal();
             if (fileId == 0 && pathId == 0)
             {
                 ext.info = null;
@@ -67,7 +67,7 @@ namespace Assets.Bundler
             else if (fileId != 0)
             {
                 AssetsFileInstance dep = relativeTo.dependencies[fileId - 1];
-                ext.info = dep.table.getAssetInfo((ulong)pathId);
+                ext.info = dep.table.GetAssetInfo(pathId);
                 if (!onlyGetInfo)
                     ext.instance = am.GetATI(dep.file, ext.info);
                 else
@@ -76,7 +76,7 @@ namespace Assets.Bundler
             }
             else
             {
-                ext.info = relativeTo.table.getAssetInfo((ulong)pathId);
+                ext.info = relativeTo.table.GetAssetInfo(pathId);
                 if (!onlyGetInfo)
                     ext.instance = am.GetATI(relativeTo.file, ext.info);
                 else

@@ -19,7 +19,7 @@ namespace Assets.Bundler
         {
             AssetsManager am = new AssetsManager();
             EditorUtility.DisplayProgressBar("HKEdit", "Loading class database...", 0f);
-            am.LoadClassPackage("cldb.dat");
+            am.LoadClassDatabase("cldb.dat");
             am.useTemplateFieldCache = true;
             am.updateAfterLoad = false;
             EditorUtility.DisplayProgressBar("HKEdit", "Reading level file...", 0.25f);
@@ -43,7 +43,7 @@ namespace Assets.Bundler
             ClassDatabaseFile cldb = am.classFile;
             AssetsFileTable table = inst.table;
 
-            ReferenceCrawler crawler = new ReferenceCrawler(am);
+            ReferenceCrawlerEditor crawler = new ReferenceCrawlerEditor(am);
 
             List<AssetFileInfoEx> initialGameObjects = table.GetAssetsOfType(0x01);
             for (int i = 0; i < initialGameObjects.Count; i++)
@@ -52,7 +52,7 @@ namespace Assets.Bundler
                     EditorUtility.DisplayProgressBar("HKEdit", "Recursing GameObject dependencies... (step 1/3)", (float)i / initialGameObjects.Count);
                 AssetFileInfoEx inf = initialGameObjects[i];
                 crawler.AddReference(new AssetID(inst.path, (long)inf.index), false);
-                crawler.FindReferences(inst, inf);
+                crawler.SetReferences(inst, inf);
             }
 
             Dictionary<AssetID, AssetID> glblToLcl = crawler.references;
@@ -67,7 +67,7 @@ namespace Assets.Bundler
                 if (j % 100 == 0)
                     EditorUtility.DisplayProgressBar("HKEdit", "Rewiring asset pointers... (step 2/3)", (float)j / glblToLcl.Count);
                 AssetsFileInstance depInst = fileToInst[id.Key.fileName];
-                AssetFileInfoEx depInf = depInst.table.getAssetInfo((ulong)id.Key.pathId);
+                AssetFileInfoEx depInf = depInst.table.GetAssetInfo(id.Key.pathId);
 
                 ClassDatabaseType clType = AssetHelper.FindAssetClassByID(cldb, depInf.curFileType);
                 string clName = clType.name.GetString(cldb);
@@ -86,6 +86,7 @@ namespace Assets.Bundler
             EditorUtility.DisplayProgressBar("HKEdit", "Saving scene... (step 3/3)", 1f);
 
             types.Add(CreateEditDifferTypeTree(cldb));
+            types.Add(CreateTk2dEmuTypeTree(cldb));
 
             List<Type_0D> assetTypes = new List<Type_0D>()
             {
@@ -99,7 +100,7 @@ namespace Assets.Bundler
             string sceneGuid = CreateMD5(origFileName);
 
             string ExportedScenes = Path.Combine("Assets", "ExportedScenes");
-            //circumvents "!BeginsWithCaseInsensitive(file.pathName, AssetDatabase::kAssetsPathWithSlash)' assertion
+            //circumvents "!BeginsWithCaseInsensitive(file.pathName, AssetDatabase::kAssetsPathWithSlash)" assertion
             string ExportedScenesData = "ExportedScenesData";
 
             CreateMetaFile(sceneGuid, Path.Combine(ExportedScenes, origFileName + ".unity.meta"));
@@ -113,18 +114,20 @@ namespace Assets.Bundler
             {
                 w.bigEndian = false;
                 //unity editor won't load whole assets files by guid, so we have to use hardcoded paths
-                sceneFile.dependencies.pDependencies = new AssetsFileDependency[]
+                sceneFile.dependencies.dependencies = new List<AssetsFileDependency>()
                 {
                     CreateDependency(ExportedScenesData + "/" + origFileName + "-data.assets"),
-                    CreateScriptDependency(Constants.editDifferMsEditorScriptHash, Constants.editDifferLsEditorScriptHash)
+                    CreateScriptDependency(Constants.editDifferMsEditorScriptHash, Constants.editDifferLsEditorScriptHash),
+                    CreateScriptDependency(Constants.tk2dEmuMsEditorScriptHash, Constants.tk2dEmuLsEditorScriptHash),
                 };
-                sceneFile.dependencies.dependencyCount = 2;
-                sceneFile.preloadTable.items = new AssetPPtr[]
+                sceneFile.dependencies.dependencyCount = 3;
+                sceneFile.preloadTable.items = new List<AssetPPtr>()
                 {
-                    new AssetPPtr(2, 11500000)
+                    new AssetPPtr(2, 11500000),
+                    new AssetPPtr(3, 11500000)
                 };
-                sceneFile.preloadTable.len = 1;
-                sceneFile.Write(w, 0, crawler.sceneReplacers.Concat(crawler.sceneMonoReplacers).ToArray(), 0);
+                sceneFile.preloadTable.len = 2;
+                sceneFile.Write(w, 0, crawler.sceneReplacers.Concat(crawler.sceneMonoReplacers).ToList(), 0);
                 sceneFileData = ms.ToArray();
             }
             byte[] assetFileData;
@@ -132,7 +135,7 @@ namespace Assets.Bundler
             using (AssetsFileWriter w = new AssetsFileWriter(ms))
             {
                 w.bigEndian = false;
-                assetFile.Write(w, 0, crawler.assetReplacers.ToArray(), 0);
+                assetFile.Write(w, 0, crawler.assetReplacers.ToList(), 0);
                 assetFileData = ms.ToArray();
             }
 
@@ -202,7 +205,7 @@ DefaultImporter:
                 return string.Empty;
             AssetTypeValueField bsBaseField = am.GetATI(inst.file, bsInf).GetBaseField();
             AssetTypeValueField scenes = bsBaseField.Get("scenes").Get("Array");
-            return scenes[(uint)index].GetValue().AsString();
+            return scenes[index].GetValue().AsString();
         }
 
         private static AssetsFileDependency CreateDependency(string path)
@@ -247,23 +250,57 @@ DefaultImporter:
         {
             Type_0D type = C2T5.Cldb2TypeTree(cldb, 0x72);
             type.scriptIndex = 0x0000;
-            type.unknown1 = Constants.editDifferScriptNEHash[0];
-            type.unknown2 = Constants.editDifferScriptNEHash[1];
-            type.unknown3 = Constants.editDifferScriptNEHash[2];
-            type.unknown4 = Constants.editDifferScriptNEHash[3];
+            type.scriptHash1 = Constants.editDifferScriptNEHash[0];
+            type.scriptHash2 = Constants.editDifferScriptNEHash[1];
+            type.scriptHash3 = Constants.editDifferScriptNEHash[2];
+            type.scriptHash4 = Constants.editDifferScriptNEHash[3];
 
             TypeTreeEditor editor = new TypeTreeEditor(type);
-            TypeField_0D baseField = type.pTypeFieldsEx[0];
+            TypeField_0D baseField = type.typeFieldsEx[0];
 
             editor.AddField(baseField, editor.CreateTypeField("unsigned int", "fileId", 1, 4, 0, false));
             editor.AddField(baseField, editor.CreateTypeField("UInt64", "pathId", 1, 8, 0, false));
             editor.AddField(baseField, editor.CreateTypeField("UInt64", "origPathId", 1, 8, 0, false));
             editor.AddField(baseField, editor.CreateTypeField("UInt8", "newAsset", 1, 1, 0, true));
-            uint componentIds = editor.AddField(baseField, editor.CreateTypeField("vector", "componentIds", 1, uint.MaxValue, 0, false, false, Flags.AnyChildUsesAlignBytesFlag));
-            uint Array = editor.AddField(editor.type.pTypeFieldsEx[componentIds], editor.CreateTypeField("Array", "Array", 2, uint.MaxValue, 0, true, true));
-            editor.AddField(editor.type.pTypeFieldsEx[Array], editor.CreateTypeField("int", "size", 3, 4, 0, false));
-            editor.AddField(editor.type.pTypeFieldsEx[Array], editor.CreateTypeField("SInt64", "data", 3, 8, 0, false));
+            uint componentIds = editor.AddField(baseField, editor.CreateTypeField("vector", "componentIds", 1, -1, 0, false, false, Flags.AnyChildUsesAlignBytesFlag));
+            uint Array = editor.AddField(editor.type.typeFieldsEx[componentIds], editor.CreateTypeField("Array", "Array", 2, -1, 0, true, true));
+            editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("int", "size", 3, 4, 0, false));
+            editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("SInt64", "data", 3, 8, 0, false));
             editor.AddField(baseField, editor.CreateTypeField("int", "instanceId", 1, 4, 0, false));
+
+            type = editor.SaveType();
+            return type;
+        }
+
+        private static Type_0D CreateTk2dEmuTypeTree(ClassDatabaseFile cldb)
+        {
+            Type_0D type = C2T5.Cldb2TypeTree(cldb, 0x72);
+            type.scriptIndex = 0x0001;
+            type.scriptHash1 = Constants.tk2dEmuScriptNEHash[0];
+            type.scriptHash2 = Constants.tk2dEmuScriptNEHash[1];
+            type.scriptHash3 = Constants.tk2dEmuScriptNEHash[2];
+            type.scriptHash4 = Constants.tk2dEmuScriptNEHash[3];
+
+            TypeTreeEditor editor = new TypeTreeEditor(type);
+            TypeField_0D baseField = type.typeFieldsEx[0];
+
+            uint vertices = editor.AddField(baseField, editor.CreateTypeField("vector", "vertices", 1, -1, 0, false, false, Flags.AnyChildUsesAlignBytesFlag));
+            uint Array = editor.AddField(editor.type.typeFieldsEx[vertices], editor.CreateTypeField("Array", "Array", 2, -1, 0, true, true));
+            editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("int", "size", 3, 4, 0, false));
+            uint data = editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("Vector3", "data", 3, -1, 0, false));
+            editor.AddField(editor.type.typeFieldsEx[data], editor.CreateTypeField("float", "x", 4, 4, 0, false));
+            editor.AddField(editor.type.typeFieldsEx[data], editor.CreateTypeField("float", "y", 4, 4, 0, false));
+            editor.AddField(editor.type.typeFieldsEx[data], editor.CreateTypeField("float", "z", 4, 4, 0, false));
+            uint uvs = editor.AddField(baseField, editor.CreateTypeField("vector", "uvs", 1, -1, 0, false, false, Flags.AnyChildUsesAlignBytesFlag));
+            Array = editor.AddField(editor.type.typeFieldsEx[uvs], editor.CreateTypeField("Array", "Array", 2, -1, 0, true, true));
+            editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("int", "size", 3, 4, 0, false));
+            data = editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("Vector2", "data", 3, -1, 0, false));
+            editor.AddField(editor.type.typeFieldsEx[data], editor.CreateTypeField("float", "x", 4, 4, 0, false));
+            editor.AddField(editor.type.typeFieldsEx[data], editor.CreateTypeField("float", "y", 4, 4, 0, false));
+            uint indices = editor.AddField(baseField, editor.CreateTypeField("vector", "indices", 1, -1, 0, false, false, Flags.AnyChildUsesAlignBytesFlag));
+            Array = editor.AddField(editor.type.typeFieldsEx[indices], editor.CreateTypeField("Array", "Array", 2, -1, 0, true, true));
+            editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("int", "size", 3, 4, 0, false));
+            editor.AddField(editor.type.typeFieldsEx[Array], editor.CreateTypeField("int", "data", 3, 4, 0, false));
 
             type = editor.SaveType();
             return type;

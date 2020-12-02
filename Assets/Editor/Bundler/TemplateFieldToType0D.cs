@@ -13,7 +13,7 @@ namespace Assets.Bundler
         }
         public TypeField_0D[] TemplateToTypeField(AssetTypeTemplateField[] fields, Type_0D stringTableType)
         {
-            return TemplateToTypeField(fields, stringTableType.pStringTable);
+            return TemplateToTypeField(fields, stringTableType.stringTable);
         }
         public TypeField_0D[] TemplateToTypeField(AssetTypeTemplateField[] fields, string stringTable)
         {
@@ -62,7 +62,7 @@ namespace Assets.Bundler
             typeFields[tfPos] = tf;
             aligned = templateField.align;
         }
-        private uint GetFieldSize(EnumValueTypes valueType)
+        private int GetFieldSize(EnumValueTypes valueType)
         {
             switch (valueType)
             {
@@ -82,7 +82,7 @@ namespace Assets.Bundler
                 case EnumValueTypes.ValueType_Double:
                     return 8;
                 default:
-                    return 0xFFFFFFFF;
+                    return -1;
             }
         }
 

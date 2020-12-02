@@ -49,6 +49,8 @@ namespace Assets.Editor
             {
                 if (component == this)
                     continue;
+                if (component is Tk2dEmu)
+                    continue;
                 componentMaps.Add(component, componentIds[idsItr++]);
             }
         }

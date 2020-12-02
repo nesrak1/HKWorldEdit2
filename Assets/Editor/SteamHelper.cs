@@ -50,7 +50,7 @@ public static class SteamHelper
             line.Trim();
             line.Trim('\t');
             line = Regex.Unescape(line);
-            Match regMatch = Regex.Match(line, "\"(.*)\"\t*\"(.*)\"");
+            Match regMatch = Regex.Match(line, "\"(.*)\"\\s*\"(.*)\"");
             string key = regMatch.Groups[1].Value;
             string value = regMatch.Groups[2].Value;
             int number;

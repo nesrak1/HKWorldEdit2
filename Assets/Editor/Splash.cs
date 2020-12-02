@@ -12,22 +12,26 @@ public static class SplashStarter
     static void Startup()
     {
         EditorApplication.update -= Startup;
-        Splash.Open();
+        //Splash.Open();
     }
 }
 
 public class Splash : EditorWindow
 {
+    private static string updateFeatures = "TK2D\nCamera lock zones & transitions";
+
+    private bool dontShow;
+
     public static void Open()
     { 
         Splash window = CreateInstance(typeof(Splash)) as Splash;
         window.titleContent = new GUIContent("Welcome to HKEdit2");
-        window.minSize = new Vector2(460, 250);
-        window.maxSize = new Vector2(460, 250);
+        window.minSize = new Vector2(470, 250);
+        window.maxSize = new Vector2(470, 250);
         window.ShowUtility();
     }
 
-    void OnGUI()
+    private void OnGUI()
     {
         Texture2D tex = new Texture2D(256, 256);
         ImageConversion.LoadImage(tex, File.ReadAllBytes("icon.png"));
@@ -35,7 +39,7 @@ public class Splash : EditorWindow
         GUILayout.Label(tex);
         GUILayout.BeginVertical(GUILayout.Height(240));
         GUILayout.FlexibleSpace();
-        GUILayout.Label("HKEdit2 by nes\nAssetsTools by DerPopo\nHollow Knight by Team Cherry");
+        GUILayout.Label("Welcome to HKEdit2!\n\nNew features:\n" + updateFeatures);
         if (GUILayout.Button("Open a new scene"))
         {
             Close();
@@ -46,10 +50,19 @@ public class Splash : EditorWindow
             Close();
             SceneLoad.CreateScene();
         }
+        if (GUILayout.Button("Settings"))
+        {
+            Close();
+        }
+        if (GUILayout.Button("Tutorial Playlist"))
+        {
+            Close();
+        }
         if (GUILayout.Button("Close"))
         {
             Close();
         }
+        dontShow = GUILayout.Toggle(dontShow, "Don't show this window again");
         GUILayout.EndHorizontal();
     }
 }

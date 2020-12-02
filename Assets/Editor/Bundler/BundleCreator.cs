@@ -19,23 +19,23 @@ namespace Assets.Bundler
                     metadataSize = 0,
                     fileSize = 0x1000,
                     format = 0x11,
-                    offs_firstFile = 0x1000,
+                    firstFileOffset = 0x1000,
                     endianness = 0,
                     unknown = new byte[] { 0, 0, 0 }
                 };
+
                 TypeTree typeTree = new TypeTree()
                 {
                     unityVersion = engineVersion,
                     version = 0x5,
                     hasTypeTree = true,
-                    fieldCount = (uint)types.Count(),
-                    pTypes_Unity5 = types.ToArray()
+                    fieldCount = types.Count(),
+                    unity5Types = types
                 };
 
-
-                header.Write(writer.Position, writer);
+                header.Write(writer);
                 writer.bigEndian = false;
-                typeTree.Write(writer.Position, writer, 0x11);
+                typeTree.Write(writer, 0x11);
                 writer.Write((uint)0);
                 writer.Align();
                 //preload table and dependencies
@@ -51,48 +51,48 @@ namespace Assets.Bundler
                 return ms.ToArray();
             }
         }
-        public static AssetsBundleFile CreateBlankBundle(string engineVersion, int contentSize)
+        public static AssetBundleFile CreateBlankBundle(string engineVersion, int contentSize)
         {
-            AssetsBundleHeader06 header = new AssetsBundleHeader06()
+            AssetBundleHeader06 header = new AssetBundleHeader06()
             {
                 signature = "UnityFS",
                 fileVersion = 6,
                 minPlayerVersion = "5.x.x",
                 fileEngineVersion = engineVersion,
-                totalFileSize = (ulong)(0x82 + engineVersion.Length + contentSize),
+                totalFileSize = 0x82 + engineVersion.Length + contentSize,
                 compressedSize = 0x5B,
                 decompressedSize = 0x5B,
                 flags = 0x40
             };
-            AssetsBundleBlockInfo06 blockInf = new AssetsBundleBlockInfo06
+            AssetBundleBlockInfo06 blockInf = new AssetBundleBlockInfo06
             {
                 decompressedSize = (uint)contentSize,
                 compressedSize = (uint)contentSize,
                 flags = 0x0040
             };
-            AssetsBundleDirectoryInfo06 dirInf = new AssetsBundleDirectoryInfo06
+            AssetBundleDirectoryInfo06 dirInf = new AssetBundleDirectoryInfo06
             {
                 offset = 0,
                 decompressedSize = (uint)contentSize,
                 flags = 4,
                 name = GenerateCabName()
             };
-            AssetsBundleBlockAndDirectoryList06 info = new AssetsBundleBlockAndDirectoryList06()
+            AssetBundleBlockAndDirectoryList06 info = new AssetBundleBlockAndDirectoryList06()
             {
                 checksumLow = 0,
                 checksumHigh = 0,
                 blockCount = 1,
-                blockInf = new AssetsBundleBlockInfo06[]
+                blockInf = new AssetBundleBlockInfo06[]
                 {
                     blockInf
                 },
                 directoryCount = 1,
-                dirInf = new AssetsBundleDirectoryInfo06[]
+                dirInf = new AssetBundleDirectoryInfo06[]
                 {
                     dirInf
                 }
             };
-            AssetsBundleFile bundle = new AssetsBundleFile()
+            AssetBundleFile bundle = new AssetBundleFile()
             {
                 bundleHeader6 = header,
                 bundleInf6 = info

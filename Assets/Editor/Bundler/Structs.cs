@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using UnityEngine;
 
 namespace Assets.Bundler
 {
@@ -159,6 +160,20 @@ namespace Assets.Bundler
         IEnumerator IEnumerable.GetEnumerator()
         {
             return forward.GetEnumerator();
+        }
+    }
+
+    public class Tk2dInfo
+    {
+        public Vector3[] positions;
+        public Vector2[] uvs;
+        public int[] indices;
+
+        public Tk2dInfo(Vector3[] positions, Vector2[] uvs, int[] indices)
+        {
+            this.positions = positions;
+            this.uvs = uvs;
+            this.indices = indices;
         }
     }
 }

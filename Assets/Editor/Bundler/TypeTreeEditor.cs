@@ -18,7 +18,7 @@ namespace Assets.Bundler
         public Type_0D type;
         public TypeTreeEditor(Type_0D type)
         {
-            NullToDict(strTableList, ref strTablePos, type.pStringTable);
+            NullToDict(strTableList, ref strTablePos, type.stringTable);
             NullToDict(defTableList, ref defTablePos, Type_0D.strTable);
             this.type = type;
         }
@@ -30,7 +30,7 @@ namespace Assets.Bundler
             uint curDepth;
             do
             {
-                TypeField_0D curField = type.pTypeFieldsEx[curIndex];
+                TypeField_0D curField = type.typeFieldsEx[curIndex];
                 curDepth = curField.depth;
                 if (curDepth == depth + 1 && GetString(curField.nameStringOffset) == field)
                 {
@@ -49,7 +49,7 @@ namespace Assets.Bundler
             uint curDepth;
             do
             {
-                TypeField_0D curField = type.pTypeFieldsEx[curIndex];
+                TypeField_0D curField = type.typeFieldsEx[curIndex];
                 curDepth = curField.depth;
                 if (curDepth == depth + 1)
                 {
@@ -65,32 +65,32 @@ namespace Assets.Bundler
             byte depth = parent.depth;
             uint curIndex = parent.index + 1; //assuming index is correct
             uint curDepth;
-            if (curIndex < type.pTypeFieldsEx.Length)
+            if (curIndex < type.typeFieldsEx.Length)
             {
                 do
                 {
-                    curDepth = type.pTypeFieldsEx[curIndex].depth;
+                    curDepth = type.typeFieldsEx[curIndex].depth;
                     curIndex++;
-                } while (curDepth > depth && curIndex < type.pTypeFieldsEx.Length);
+                } while (curDepth > depth && curIndex < type.typeFieldsEx.Length);
             }
 
             field.index = curIndex;
 
             uint insertIndex = curIndex;
 
-            TypeField_0D[] dest = new TypeField_0D[type.pTypeFieldsEx.Length + 1];
+            TypeField_0D[] dest = new TypeField_0D[type.typeFieldsEx.Length + 1];
 
-            Array.Copy(type.pTypeFieldsEx, 0, dest, 0, curIndex);
+            Array.Copy(type.typeFieldsEx, 0, dest, 0, curIndex);
             dest[curIndex] = field;
-            Array.Copy(type.pTypeFieldsEx, curIndex, dest, curIndex + 1, type.pTypeFieldsEx.Length - curIndex);
+            Array.Copy(type.typeFieldsEx, curIndex, dest, curIndex + 1, type.typeFieldsEx.Length - curIndex);
 
-            type.pTypeFieldsEx = dest;
+            type.typeFieldsEx = dest;
             type.typeFieldsExCount++;
             curIndex++;
 
-            while (curIndex < type.pTypeFieldsEx.Length)
+            while (curIndex < type.typeFieldsEx.Length)
             {
-                type.pTypeFieldsEx[curIndex].index++;
+                type.typeFieldsEx[curIndex].index++;
                 curIndex++;
             }
             return insertIndex;
@@ -108,7 +108,7 @@ namespace Assets.Bundler
             }
         }
 
-        public TypeField_0D CreateTypeField(string type, string name, byte depth, uint size, uint index, bool align, bool array = false, Flags additionalFlags = Flags.None)
+        public TypeField_0D CreateTypeField(string type, string name, byte depth, int size, uint index, bool align, bool array = false, Flags additionalFlags = Flags.None)
         {
             Flags flags = Flags.None;
             if (align)
@@ -166,7 +166,7 @@ namespace Assets.Bundler
 
         public Type_0D SaveType()
         {
-            DictToNull(strTableList, ref type.pStringTable);
+            DictToNull(strTableList, ref type.stringTable);
             return type;
         }
 

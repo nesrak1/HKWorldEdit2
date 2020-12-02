@@ -3,10 +3,14 @@
 public class Constants
 {
     public static readonly uint[] editDifferScriptNEHash = new uint[] { 0x6eb46069, 0x5eda7d6c, 0xbfd0ce46, 0xadf887b5 };
+    public static readonly uint[] tk2dEmuScriptNEHash = new uint[] { 0x1675977a, 0x8b511402, 0x91c325bb, 0x2117a2e4 };
     public static readonly uint[] sceneMetadataScriptNEHash = new uint[] { 0x993f3608, 0x2cc0f87e, 0xca6371c5, 0x4ed77624 };
     //315b6d2463669124586f57520d2ce601
     public static readonly long editDifferMsEditorScriptHash = 0x4219663642d6b513;
     public static readonly long editDifferLsEditorScriptHash = 0x106ec2d02575f685;
+    //9e752ce486f2c364a8d936cacc485cc4 (actually it's not lol see below)
+    public static readonly long tk2dEmuMsEditorScriptHash = 0x4d0e83f044826641;
+    public static readonly long tk2dEmuLsEditorScriptHash = unchecked((long)0xde056e53911a9d88);
     //9ac32aa6b7be9a74f9ba4bef659fcb97
     public static readonly long sceneMetadataMsEditorScriptHash = 0x47a9eb7b6aa23ca9;
     public static readonly long sceneMetadataLsEditorScriptHash = 0x79bcf956feb4ab9f;

@@ -49,17 +49,17 @@ public class SceneLoad
     public static void OpenSceneByName()
     {
         AssetsManager am = new AssetsManager();
-        am.LoadClassPackage("cldb.dat");
+        am.LoadClassDatabase("cldb.dat");
 
         string gameDataPath = GetGamePath();
 
         AssetsFileInstance inst = am.LoadAssetsFile(Path.Combine(gameDataPath, "globalgamemanagers"), false);
-        AssetFileInfoEx buildSettings = inst.table.getAssetInfo(11);
+        AssetFileInfoEx buildSettings = inst.table.GetAssetInfo(11);
 
         List<string> scenes = new List<string>();
         AssetTypeValueField baseField = am.GetATI(inst.file, buildSettings).GetBaseField();
         AssetTypeValueField sceneArray = baseField.Get("scenes").Get("Array");
-        for (uint i = 0; i < sceneArray.GetValue().AsArray().size; i++)
+        for (int i = 0; i < sceneArray.GetValue().AsArray().size; i++)
         {
             scenes.Add(sceneArray[i].GetValue().AsString() + "[" + i + "]");
         }
@@ -101,7 +101,10 @@ public class SceneSelector : EditorWindow
     void OnGUI()
     {
         if (am == null || strings == null || gameDataPath == string.Empty)
+        {
+            GUILayout.Label("SceneSelector was unloaded. Run Load Scene By Name again.");
             return;
+        }
         Rect scrollViewRect = new Rect(0, 0, position.width, position.height);
         Rect selectionGridRect = new Rect(0, 0, position.width - 20, strings.Length * 20);
         scrollPos = GUI.BeginScrollView(scrollViewRect, scrollPos, selectionGridRect);
