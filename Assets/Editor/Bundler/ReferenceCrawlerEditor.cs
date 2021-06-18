@@ -531,13 +531,13 @@ namespace Assets.Bundler
 
         private bool IsAsset(AssetFileInfoEx inf)
         {
-            return inf.curFileType == 0x1c || inf.curFileType == 0x30 || inf.curFileType == 0x53 ||
-            /*new*//*inf.curFileType == 0x5b || inf.curFileType == 0x4a ||*/ inf.curFileType == 0x28f3fdef;
+            return inf.curFileType == 0x1c || inf.curFileType == 0x30 || inf.curFileType == 0x53;
+            /*new*//*inf.curFileType == 0x5b || inf.curFileType == 0x4a || inf.curFileType == 0x28f3fdef */
         }
         private bool IsAsset(int id)
         {
-            return id == 0x1c || id == 0x30 || id == 0x53 ||
-            /*these first two weren't here, was this intentional?*/ id == 0x28f3fdef;
+            return id == 0x1c || id == 0x30 || id == 0x53;
+            /*these first two weren't here, was this intentional? id == 0x28f3fdef*/
         }
     }
 }

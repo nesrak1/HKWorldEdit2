@@ -96,7 +96,7 @@ namespace Assets.Bundler
                 //new
                 /*C2T5.Cldb2TypeTree(cldb, 0x5b),
                 C2T5.Cldb2TypeTree(cldb, 0x4a),*/
-                C2T5.Cldb2TypeTree(cldb, 0x28f3fdef)
+                //C2T5.Cldb2TypeTree(cldb, 0x28f3fdef)
             };
 
             string origFileName = Path.GetFileNameWithoutExtension(inst.path);
@@ -105,7 +105,7 @@ namespace Assets.Bundler
 
             string ExportedScenes = Path.Combine("Assets", "ExportedScenes");
             //circumvents "!BeginsWithCaseInsensitive(file.pathName, AssetDatabase::kAssetsPathWithSlash)" assertion
-            string ExportedScenesData = @"C:/Users/nesquack/Documents/GitReposLocal/HKWorldEdit2-2020.2/ExportedScenesData";
+            string ExportedScenesData = "ExportedScenesData";
 
             CreateMetaFile(sceneGuid, Path.Combine(ExportedScenes, origFileName + ".unity.meta"));
 
@@ -141,9 +141,9 @@ namespace Assets.Bundler
                 w.bigEndian = false;
                 assetFile.dependencies.dependencies = new List<AssetsFileDependency>()
                 {
-                    CreateDependency(@"C:/Users/nesquack/Documents/GitReposLocal/HKWorldEdit2-2020.2/Assets" + "/" + origFileName + ".unity"),
+                    //CreateDependency("Assets/" + origFileName + ".unity"),
                 };
-                assetFile.dependencies.dependencyCount = 1;
+                assetFile.dependencies.dependencyCount = 0;
                 assetFile.Write(w, 0, crawler.assetReplacers.ToList(), 0);
                 assetFileData = ms.ToArray();
             }
