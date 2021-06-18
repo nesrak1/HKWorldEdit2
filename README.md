@@ -1,12 +1,12 @@
 # HKEdit2
 
-![screenshot](screenshot.png)
+![screenshot2](screenshot2.png)
 
 HKEdit2 is a Hollow Knight level editor. It is currently a work in progress.
 
 HKEdit works by moving the contents of a level file into a unity scene file with extra metadata. Whenever the scene is updated and converted, it becomes a diff file which can be redistributed without including any content from the game.
 
-Simply download the project (downloading the code is fine, there are no releases) and open the folder in the Unity 2017.4.10f1 editor. You can load a scene with `HKEdit->Load Scene By File` by file or `HKEdit->Open Scene By Name` by name. You can save a scene by `HKEdit->Save Scene` with the scene you want to save open (not finished yet! this does nothing right now).
+Simply download the project (downloading the code is fine, there are no releases) and open the folder in the Unity 2020.2.2f1 editor. You can load a scene with `HKEdit->Load Scene By File` by file or `HKEdit->Open Scene By Name` by name. You can save a scene by `HKEdit->Save Scene` with the scene you want to save open (not finished yet! this does nothing right now).
 
 Progress:
 
