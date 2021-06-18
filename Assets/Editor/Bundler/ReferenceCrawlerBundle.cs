@@ -11,6 +11,8 @@ namespace Assets.Bundler
     //crawl dependencies for editor bundle -> game files
     public class ReferenceCrawlerBundle
     {
+        //the difference is here that we want to keep dependencies
+        //intact which means fileIds can't be touched, only pathIds
         const string SCENE_LEVEL_NAME = "bundlescene";
         public Dictionary<AssetID, AssetID> references; //scene space to bundle space
         public List<AssetsReplacer> sceneReplacers;
@@ -50,6 +52,12 @@ namespace Assets.Bundler
             AssetID newAid = new AssetID(SCENE_LEVEL_NAME, sceneId);
             references.Add(aid, newAid);
             sceneId++;
+        }
+        public int GetNextId()
+        {
+            int ret = sceneId;
+            sceneId++;
+            return ret;
         }
         private void SetReferencesRecurse(AssetsFileInstance inst, AssetTypeValueField field)
         {

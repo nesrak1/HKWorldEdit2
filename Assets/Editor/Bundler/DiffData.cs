@@ -43,14 +43,14 @@ namespace Assets.Editor.Bundler
     public class GameObjectAddition
     {
         public long bundleId; //pathId in this bundle
-        public long parentId; //pathId to original scene
+        public long sceneId; //pathId to original scene
         public List<GameObjectAdditionDependency> dependencies;
     }
     [Serializable]
     public class GameObjectAdditionDependency
     {
         public long bundleId; //pathId in this bundle
-        public long parentId; //pathId to original scene
+        public long sceneId; //pathId to original scene
     }
     public enum GameObjectChangeFlags
     {

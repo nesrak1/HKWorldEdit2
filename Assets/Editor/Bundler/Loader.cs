@@ -13,7 +13,7 @@ namespace Assets.Bundler
 {
     public class Loader
     {
-        const string ver = "2017.4.10f1";
+        const string ver = "2020.2.2f1";
         const int hkweVersion = 1;
         public static void GenerateLevelFiles(string levelPath)
         {
@@ -49,7 +49,7 @@ namespace Assets.Bundler
             for (int i = 0; i < initialGameObjects.Count; i++)
             {
                 if (i % 100 == 0)
-                    EditorUtility.DisplayProgressBar("HKEdit", "Recursing GameObject dependencies... (step 1/3)", (float)i / initialGameObjects.Count);
+                    EditorUtility.DisplayProgressBar("HKEdit", "Finding necessary assets... (step 1/3)", (float)i / initialGameObjects.Count);
                 AssetFileInfoEx inf = initialGameObjects[i];
                 crawler.AddReference(new AssetID(inst.path, (long)inf.index), false);
                 crawler.SetReferences(inst, inf);
@@ -65,7 +65,7 @@ namespace Assets.Bundler
             foreach (KeyValuePair<AssetID, AssetID> id in glblToLcl)
             {
                 if (j % 100 == 0)
-                    EditorUtility.DisplayProgressBar("HKEdit", "Rewiring asset pointers... (step 2/3)", (float)j / glblToLcl.Count);
+                    EditorUtility.DisplayProgressBar("HKEdit", "Reordering path ids... (step 2/3)", (float)j / glblToLcl.Count);
                 AssetsFileInstance depInst = fileToInst[id.Key.fileName];
                 AssetFileInfoEx depInf = depInst.table.GetAssetInfo(id.Key.pathId);
 
@@ -92,7 +92,11 @@ namespace Assets.Bundler
             {
                 C2T5.Cldb2TypeTree(cldb, 0x1c),
                 C2T5.Cldb2TypeTree(cldb, 0x30),
-                C2T5.Cldb2TypeTree(cldb, 0x53)
+                C2T5.Cldb2TypeTree(cldb, 0x53),
+                //new
+                /*C2T5.Cldb2TypeTree(cldb, 0x5b),
+                C2T5.Cldb2TypeTree(cldb, 0x4a),*/
+                C2T5.Cldb2TypeTree(cldb, 0x28f3fdef)
             };
 
             string origFileName = Path.GetFileNameWithoutExtension(inst.path);
@@ -101,7 +105,7 @@ namespace Assets.Bundler
 
             string ExportedScenes = Path.Combine("Assets", "ExportedScenes");
             //circumvents "!BeginsWithCaseInsensitive(file.pathName, AssetDatabase::kAssetsPathWithSlash)" assertion
-            string ExportedScenesData = "ExportedScenesData";
+            string ExportedScenesData = @"C:/Users/nesquack/Documents/GitReposLocal/HKWorldEdit2-2020.2/ExportedScenesData";
 
             CreateMetaFile(sceneGuid, Path.Combine(ExportedScenes, origFileName + ".unity.meta"));
 
@@ -135,6 +139,11 @@ namespace Assets.Bundler
             using (AssetsFileWriter w = new AssetsFileWriter(ms))
             {
                 w.bigEndian = false;
+                assetFile.dependencies.dependencies = new List<AssetsFileDependency>()
+                {
+                    CreateDependency(@"C:/Users/nesquack/Documents/GitReposLocal/HKWorldEdit2-2020.2/Assets" + "/" + origFileName + ".unity"),
+                };
+                assetFile.dependencies.dependencyCount = 1;
                 assetFile.Write(w, 0, crawler.assetReplacers.ToList(), 0);
                 assetFileData = ms.ToArray();
             }

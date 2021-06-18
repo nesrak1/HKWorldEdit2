@@ -38,16 +38,27 @@ namespace Assets.Bundler
             tk2dFromGoLookup = new Dictionary<AssetID, Tk2dInfo>();
             tk2dSpriteScriptIndex = 0xffff;
         }
+        //creates a lookup where assets from different built game files
+        //with different fileIds and pathIds can be converted to a list
+        //of pathIds in order with fileId 0 or 1 depending on the asset type
+        //(stored in the references dictionary)
         public void SetReferences(AssetsFileInstance inst, AssetFileInfoEx inf)
         {
             AssetTypeValueField baseField = am.GetATI(inst.file, inf).GetBaseField();
             SetReferencesRecurse(inst, baseField);
         }
+        //replaces the PPtr entries in each asset with the new pathId
+        //(.Key with .Value in the references dictionary) and fixes some
+        //specific problems with assets like GameObject or Texture2D
+        //(stored in sceneReplacers and assetReplacers)
         public void ReplaceReferences(AssetsFileInstance inst, AssetFileInfoEx inf, long pathId)
         {
             AssetTypeValueField baseField = am.GetATI(inst.file, inf).GetBaseField();
+
+            FixAssetPre(inst, baseField, inf);
             ReplaceReferencesRecurse(inst, baseField, inf);
-            FixAsset(inst, baseField, inf);
+            FixAssetPost(inst, baseField, inf);
+
             byte[] baseFieldData;
             using (MemoryStream ms = new MemoryStream())
             using (AssetsFileWriter w = new AssetsFileWriter(ms))
@@ -168,7 +179,7 @@ namespace Assets.Bundler
                         }
                         else
                         {
-                            ///////////////
+                            /////////////// todo move to another method
                             AssetsFileInstance depInst = ConvertToInstance(inst, fileId);
                             AssetFileInfoEx depInf = depInst.table.GetAssetInfo(pathId);
                             if (depInf.curFileType == 0x72)
@@ -259,7 +270,106 @@ namespace Assets.Bundler
                 return inst.dependencies[fileId - 1];
         }
 
-        private void FixAsset(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
+        private void FixAssetPre(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
+        {
+            if (inf.curFileType == 0xd5) //fix sprite
+            {
+                AssetTypeValueField renderDataKey = field.Get("m_RenderDataKey");
+                AssetTypeValueField spriteAtlas = field.Get("m_SpriteAtlas");
+                long spriteAtlasPathId = spriteAtlas.Get("m_PathID").GetValue().AsInt64();
+
+                uint rid0 = renderDataKey.Get("first")[0].GetValue().AsUInt();
+                uint rid1 = renderDataKey.Get("first")[1].GetValue().AsUInt();
+                uint rid2 = renderDataKey.Get("first")[2].GetValue().AsUInt();
+                uint rid3 = renderDataKey.Get("first")[3].GetValue().AsUInt();
+
+                //editor can't read these for whatever reason
+                if (spriteAtlasPathId != 0)
+                {
+                    AssetExternal spriteAtlasExt = am.GetExtAsset(inst, spriteAtlas);
+                    AssetTypeValueField spriteAtlasBase = spriteAtlasExt.instance.GetBaseField();
+                    AssetTypeValueField renderDataMap = spriteAtlasBase.Get("m_RenderDataMap").Get("Array");
+                    int renderDataMapCount = renderDataMap.GetValue().AsArray().size;
+
+                    int renderDataIndex = -1;
+                    for (int i = 0; i < renderDataMapCount; i++)
+                    {
+                        AssetTypeValueField renderDataMapKey = renderDataMap[i].Get("first");
+
+                        uint thisrid0 = renderDataMapKey.Get("first")[0].GetValue().AsUInt();
+                        uint thisrid1 = renderDataMapKey.Get("first")[1].GetValue().AsUInt();
+                        uint thisrid2 = renderDataMapKey.Get("first")[2].GetValue().AsUInt();
+                        uint thisrid3 = renderDataMapKey.Get("first")[3].GetValue().AsUInt();
+
+                        if (thisrid0 == rid0 && thisrid1 == rid1 && thisrid2 == rid2 && thisrid3 == rid3)
+                        {
+                            renderDataIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (renderDataIndex != -1)
+                    {
+                        AssetTypeValueField spriteAtlasRD = renderDataMap[renderDataIndex].Get("second");
+                        AssetTypeValueField spriteRD = field.Get("m_RD");
+
+                        //texture
+                        AssetTypeValueField spriteAtlasTexture = spriteAtlasRD.Get("texture");
+                        AssetTypeValueField spriteTexture = spriteRD.Get("texture");
+                        spriteTexture.Get("m_FileID").GetValue().Set(spriteAtlasTexture.Get("m_FileID").GetValue().AsInt());
+                        spriteTexture.Get("m_PathID").GetValue().Set(spriteAtlasTexture.Get("m_PathID").GetValue().AsInt64());
+                        //alphaTexture
+                        AssetTypeValueField spriteAtlasAlphaTexture = spriteAtlasRD.Get("alphaTexture");
+                        AssetTypeValueField spriteAlphaTexture = spriteRD.Get("alphaTexture");
+                        spriteAlphaTexture.Get("m_FileID").GetValue().Set(spriteAtlasAlphaTexture.Get("m_FileID").GetValue().AsInt());
+                        spriteAlphaTexture.Get("m_PathID").GetValue().Set(spriteAtlasAlphaTexture.Get("m_PathID").GetValue().AsInt64());
+                        //textureRect
+                        AssetTypeValueField spriteAtlasTextureRect = spriteAtlasRD.Get("textureRect");
+                        AssetTypeValueField spriteTextureRect = spriteRD.Get("textureRect");
+                        spriteTextureRect.Get("x").GetValue().Set(spriteAtlasTextureRect.Get("x").GetValue().AsFloat());
+                        spriteTextureRect.Get("y").GetValue().Set(spriteAtlasTextureRect.Get("y").GetValue().AsFloat());
+                        spriteTextureRect.Get("width").GetValue().Set(spriteAtlasTextureRect.Get("width").GetValue().AsFloat());
+                        spriteTextureRect.Get("height").GetValue().Set(spriteAtlasTextureRect.Get("height").GetValue().AsFloat());
+                        ////textureRectOffset
+                        AssetTypeValueField spriteAtlasTextureRectOffset = spriteAtlasRD.Get("textureRectOffset");
+                        AssetTypeValueField spriteTextureRectOffset = spriteRD.Get("textureRectOffset");
+                        spriteTextureRectOffset.Get("x").GetValue().Set(spriteAtlasTextureRectOffset.Get("x").GetValue().AsFloat());
+                        spriteTextureRectOffset.Get("y").GetValue().Set(spriteAtlasTextureRectOffset.Get("y").GetValue().AsFloat());
+                        //atlasRectOffset
+                        AssetTypeValueField spriteAtlasAtlasRectOffset = spriteAtlasRD.Get("atlasRectOffset");
+                        AssetTypeValueField spriteAtlasRectOffset = spriteRD.Get("atlasRectOffset");
+                        spriteAtlasRectOffset.Get("x").GetValue().Set(spriteTextureRectOffset.Get("x").GetValue().AsFloat());
+                        spriteAtlasRectOffset.Get("y").GetValue().Set(spriteTextureRectOffset.Get("y").GetValue().AsFloat());
+                        spriteAtlasRectOffset.Get("x").GetValue().Set(spriteAtlasAtlasRectOffset.Get("x").GetValue().AsFloat());
+                        spriteAtlasRectOffset.Get("y").GetValue().Set(spriteAtlasAtlasRectOffset.Get("y").GetValue().AsFloat());
+                        //uvTransform
+                        AssetTypeValueField spriteAtlasUvTransform = spriteAtlasRD.Get("uvTransform");
+                        AssetTypeValueField spriteUvTransform = spriteRD.Get("uvTransform");
+                        spriteUvTransform.Get("x").GetValue().Set(spriteAtlasUvTransform.Get("x").GetValue().AsFloat());
+                        spriteUvTransform.Get("y").GetValue().Set(spriteAtlasUvTransform.Get("y").GetValue().AsFloat());
+                        spriteUvTransform.Get("z").GetValue().Set(spriteAtlasUvTransform.Get("z").GetValue().AsFloat());
+                        spriteUvTransform.Get("w").GetValue().Set(spriteAtlasUvTransform.Get("w").GetValue().AsFloat());
+                        //downscaleMultiplier
+                        AssetTypeValueField spriteAtlasDownscapeMultiplier = spriteAtlasRD.Get("downscaleMultiplier");
+                        AssetTypeValueField spriteDownscapeMultiplier = spriteRD.Get("downscaleMultiplier");
+                        spriteDownscapeMultiplier.GetValue().Set(spriteAtlasDownscapeMultiplier.GetValue().AsFloat());
+                        //settingsRaw
+                        AssetTypeValueField spriteAtlasSettingsRaw = spriteAtlasRD.Get("settingsRaw");
+                        AssetTypeValueField spriteSettingsRaw = spriteRD.Get("settingsRaw");
+                        spriteSettingsRaw.GetValue().Set(spriteAtlasSettingsRaw.GetValue().AsFloat());
+
+                        spriteAtlas.Get("m_FileID").GetValue().Set(0);
+                        spriteAtlas.Get("m_PathID").GetValue().Set((long)0);
+                    }
+                    //else
+                    //{
+                    //    Debug.Log("exhausted sprite search");
+                    //}
+                }
+            }
+        }
+
+        private void FixAssetPost(AssetsFileInstance inst, AssetTypeValueField field, AssetFileInfoEx inf)
         {
             if (inf.curFileType == 0x01) //fix gameobject
             {
@@ -421,11 +531,13 @@ namespace Assets.Bundler
 
         private bool IsAsset(AssetFileInfoEx inf)
         {
-            return inf.curFileType == 0x1c || inf.curFileType == 0x30 || inf.curFileType == 0x53;
+            return inf.curFileType == 0x1c || inf.curFileType == 0x30 || inf.curFileType == 0x53 ||
+            /*new*//*inf.curFileType == 0x5b || inf.curFileType == 0x4a ||*/ inf.curFileType == 0x28f3fdef;
         }
         private bool IsAsset(int id)
         {
-            return id == 0x1c || id == 0x30 || id == 0x53;
+            return id == 0x1c || id == 0x30 || id == 0x53 ||
+            /*these first two weren't here, was this intentional?*/ id == 0x28f3fdef;
         }
     }
 }

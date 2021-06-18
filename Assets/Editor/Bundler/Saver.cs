@@ -40,7 +40,7 @@ namespace Assets.Bundler
 {
     public class Saver
     {
-        const string ver = "2017.4.10f1";
+        const string ver = "2020.2.2f1";
         public static void GenerateDiffFile(string newLevelPath, string metaPath)
         {
             string metadata = File.ReadAllText(metaPath);
@@ -56,10 +56,12 @@ namespace Assets.Bundler
             GenerateDiffFile(am, am.LoadAssetsFile(levelPath, false), am.LoadAssetsFile(newLevelPath, false), meta);
         }
 
-        public static void GenerateDiffFile(AssetsManager am, AssetsFileInstance origInst, AssetsFileInstance newInst, HKWEMeta meta)
+        public static void GenerateDiffFile(AssetsManager am, AssetsFileInstance buildInst, AssetsFileInstance sceneInst, HKWEMeta meta)
         {
             EditorUtility.DisplayProgressBar("HKEdit", "Reading dependencies...", 0.5f);
             am.UpdateDependencies();
+
+            ClassDatabaseFile cldb = am.classFile;
 
             DiffData result = new DiffData()
             {
@@ -67,20 +69,20 @@ namespace Assets.Bundler
                 goAdditions = new List<GameObjectAddition>()
             };
 
-            Dictionary<EditDifferData, long> differToNewId = new Dictionary<EditDifferData, long>();
-            Dictionary<long, EditDifferData> origIdToDiffer = new Dictionary<long, EditDifferData>();
+            Dictionary<EditDifferData, long> differToSceneId = new Dictionary<EditDifferData, long>();
+            Dictionary<long, EditDifferData> buildIdToDiffer = new Dictionary<long, EditDifferData>();
             List<EditDifferData> differData = new List<EditDifferData>();
 
-            AssetsFileTable newTable = newInst.table;
-            List<AssetFileInfoEx> newGos = newTable.GetAssetsOfType(0x01);
-            for (int i = 0; i < newGos.Count; i++)
+            AssetsFileTable sceneTable = sceneInst.table;
+            List<AssetFileInfoEx> sceneGos = sceneTable.GetAssetsOfType(0x01);
+            for (int i = 0; i < sceneGos.Count; i++)
             {
                 if (i % 100 == 0)
-                    EditorUtility.DisplayProgressBar("HKEdit", "Finding diff IDs... (step 1/3)", (float)i / newGos.Count);
-                AssetFileInfoEx inf = newGos[i];
-                AssetTypeValueField baseField = am.GetATI(newInst.file, inf).GetBaseField();
+                    EditorUtility.DisplayProgressBar("HKEdit", "Finding diff IDs... (step 1/3)", (float)i / sceneGos.Count);
+                AssetFileInfoEx inf = sceneGos[i];
+                AssetTypeValueField baseField = am.GetATI(sceneInst.file, inf).GetBaseField();
 
-                AssetTypeValueField editDifferMono = GetEDMono(am, newInst, baseField);
+                AssetTypeValueField editDifferMono = GetEDMono(am, sceneInst, baseField);
 
                 EditDifferData diff = new EditDifferData()
                 {
@@ -90,36 +92,51 @@ namespace Assets.Bundler
                     newAsset = editDifferMono.Get("newAsset").GetValue().AsBool()
                 };
 
-                origIdToDiffer[diff.origPathId] = diff;
+                buildIdToDiffer[diff.origPathId] = diff;
+                differToSceneId[diff] = inf.index;
                 differData.Add(diff);
             }
 
             //////////////////////////
-            
-            AssetsFileTable origTable = origInst.table;
+
+            AssetsFileTable origTable = buildInst.table;
             List<AssetFileInfoEx> origGos = origTable.GetAssetsOfType(0x01);
 
             List<long> origDeletIds = new List<long>();
-            int nextBundleId = 1;
+            //int nextBundleId = 1;
 
-            // == delete changes == //
-            for (int i = 0; i < origGos.Count; i++)
-            {
-                if (i % 100 == 0)
-                    EditorUtility.DisplayProgressBar("HKEdit", "Checking for deletes... (step 2/3)", (float)i / origGos.Count);
-                AssetFileInfoEx inf = newGos[i];
-                if (!differData.Any(d => d.origPathId == inf.index))
-                {
-                    GameObjectChange change = new GameObjectChange
-                    {
-                        flags = GameObjectChangeFlags.Deleted
-                    };
-                    result.goChanges.Add(change);
-                    origDeletIds.Add(inf.index);
-                }
-            }
+            //// == delete changes == //
+            //for (int i = 0; i < origGos.Count; i++)
+            //{
+            //    if (i % 100 == 0)
+            //        EditorUtility.DisplayProgressBar("HKEdit", "Checking for deletes... (step 2/3)", (float)i / origGos.Count);
+            //    AssetFileInfoEx inf = sceneGos[i];
+            //    if (!differData.Any(d => d.origPathId == inf.index))
+            //    {
+            //        GameObjectChange change = new GameObjectChange
+            //        {
+            //            flags = GameObjectChangeFlags.Deleted
+            //        };
+            //        result.goChanges.Add(change);
+            //        origDeletIds.Add(inf.index);
+            //    }
+            //}
 
             // == add changes == //
+            //to get this working in a built game, we need
+            //built assets (ie pngs -> texture2d) the problem
+            //is there's no easy way to direct unity to do that
+            //without loading the scene and using unity's api
+            //but we can pull out assets into a prefab and build
+            //the prefab but there are problems with duplicate
+            //dependencies being copied, so we pack them all
+            //into one place so that doesn't happen
+            //(for reference, in hkwe1, each gameobject got
+            //its own prefab)
+
+            //find dependencies
+            ReferenceCrawlerBundle createdCrawler = new ReferenceCrawlerBundle(am); //assets created by the user in the ditor
+            ReferenceCrawlerBundle existingCrawler = new ReferenceCrawlerBundle(am); //assets that already existed in the scene
             for (int i = 0; i < differData.Count; i++)
             {
                 if (i % 100 == 0)
@@ -127,22 +144,21 @@ namespace Assets.Bundler
                 EditDifferData dat = differData[i];
                 if (dat.newAsset)
                 {
-                    ReferenceCrawlerBundle crawler = new ReferenceCrawlerBundle(am);
-                    long newPathId = differToNewId[dat];
-                    AssetFileInfoEx inf = newInst.table.GetAssetInfo(newPathId);
-                    crawler.SetReferences(newInst, inf);
+                    long sceneId = differToSceneId[dat];
+                    AssetFileInfoEx inf = sceneInst.table.GetAssetInfo(sceneId);
+                    createdCrawler.SetReferences(sceneInst, inf);
                     GameObjectAddition addition = new GameObjectAddition
                     {
-                        bundleId = nextBundleId,
-                        parentId = dat.pathId,
+                        bundleId = createdCrawler.GetNextId(), //?
+                        sceneId = dat.pathId,
                         dependencies = new List<GameObjectAdditionDependency>()
                     };
-                    nextBundleId++;
-                    foreach (KeyValuePair<AssetID, AssetID> goRef in crawler.references)
+                    //nextBundleId++;
+                    foreach (KeyValuePair<AssetID, AssetID> goRef in createdCrawler.references)
                     {
                         addition.dependencies.Add(new GameObjectAdditionDependency
                         {
-                            parentId = goRef.Key.pathId,
+                            sceneId = goRef.Key.pathId,
                             bundleId = goRef.Value.pathId
                         });
                     }
@@ -150,12 +166,70 @@ namespace Assets.Bundler
                 }
                 else
                 {
-                    ReferenceCrawlerBundle crawler = new ReferenceCrawlerBundle(am);
-                    long newPathId = differToNewId[dat];
-                    AssetFileInfoEx inf = newInst.table.GetAssetInfo(newPathId);
-                    crawler.SetReferences(newInst, inf);
+                    long newPathId = differToSceneId[dat];
+                    AssetFileInfoEx inf = sceneInst.table.GetAssetInfo(newPathId);
+                    existingCrawler.SetReferences(sceneInst, inf);
                 }
             }
+
+            //load up all created assets into a prefab
+            List<Type_0D> types = new List<Type_0D>();
+            List<string> typeNames = new List<string>();
+
+            foreach (AssetsReplacer rep in createdCrawler.sceneReplacers)
+            {
+                ClassDatabaseType clType = AssetHelper.FindAssetClassByID(cldb, (uint)rep.GetClassID());
+                string clName = clType.name.GetString(cldb);
+                if (!typeNames.Contains(clName))
+                {
+                    Type_0D type0d = C2T5.Cldb2TypeTree(cldb, clName);
+                    type0d.classId = clType.classId;
+                    types.Add(type0d);
+                    typeNames.Add(clName);
+                }
+            }
+
+            List<AssetsReplacer> replacers = new List<AssetsReplacer>();
+            replacers.Add(CreatePrefabAsset(2)); //better hope id 2 is a gameobject
+            replacers.AddRange(createdCrawler.sceneReplacers);
+
+            AssetsFile createdFile = new AssetsFile(new AssetsFileReader(new MemoryStream(BundleCreator.CreateBlankAssets(ver, types))));
+
+            byte[] data;
+            using (MemoryStream ms = new MemoryStream())
+            using (AssetsFileWriter writer = new AssetsFileWriter(ms))
+            {
+                createdFile.Write(writer, 0, replacers, 0);
+                data = ms.ToArray();
+            }
+        }
+
+        private static AssetsReplacer CreatePrefabAsset(long rootId)
+        {
+            //the 2017 cldb doesn't have prefab in it so
+            //we're on our own with binary writer again
+
+            MemoryStream ms = new MemoryStream();
+            AssetsFileWriter writer = new AssetsFileWriter(ms);
+            writer.bigEndian = false;
+            writer.Write((uint)1);
+
+            writer.Write(0);
+            writer.Write((long)0);
+
+            writer.Write(0);
+            writer.Write(0);
+
+            writer.Write(0);
+            writer.Write((long)0);
+
+            writer.Write(0);
+            writer.Write(rootId);
+
+            writer.Write((byte)0);
+            writer.Align();
+
+            return new AssetsReplacerFromMemory(0, 1, 0x3e9, 0xffff, ms.ToArray());
         }
 
         private static AssetTypeValueField GetEDMono(AssetsManager am, AssetsFileInstance fileInst, AssetTypeValueField goBaseField)
@@ -170,6 +244,7 @@ namespace Assets.Bundler
                     //todo, check if this is the right monob
                     //as there's only one this is fine for now
                     //but I still hate this
+                    //TODO THIS ACTUALLY WONT WORK NOW THAT WE HAVE 2
                     ext = am.GetExtAsset(fileInst, component, false);
                     AssetTypeValueField monoBaseField = ext.instance.GetBaseField();
                     return monoBaseField;
