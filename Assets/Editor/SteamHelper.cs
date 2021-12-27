@@ -1,6 +1,7 @@
 ﻿using Microsoft.Win32;
 using System.IO;
 using System.Text.RegularExpressions;
+using Gameloop.Vdf;
 using UnityEditor;
 
 public static class SteamHelper
@@ -15,6 +16,7 @@ public static class SteamHelper
 
     public static string FindSteamGamePath(int appid, string gameName)
     {
+        //TODO: Linux, Mac Steam, and GOG.
         if (ReadRegistrySafe("Software\\Valve\\Steam", "SteamPath") == null)
         {
             EditorUtility.DisplayDialog("HKEdit", "You either don't have steam installed or your registry variable isn't set.", "OK");
@@ -43,23 +45,26 @@ public static class SteamHelper
 
     private static string SearchAllInstallations(string libraryfolders, int appid, string gameName)
     {
-        StreamReader file = new StreamReader(libraryfolders);
-        string line;
-        while ((line = file.ReadLine()) != null)
+        dynamic libraryData = VdfConvert.Deserialize(File.ReadAllText(libraryfolders));
+
+        foreach (dynamic entry in libraryData.Value.Children())
         {
-            line.Trim();
-            line.Trim('\t');
-            line = Regex.Unescape(line);
-            Match regMatch = Regex.Match(line, "\"(.*)\"\\s*\"(.*)\"");
-            string key = regMatch.Groups[1].Value;
-            string value = regMatch.Groups[2].Value;
             int number;
-            if (int.TryParse(key, out number))
+            if (int.TryParse(entry.Key,out number))
             {
-                if (File.Exists(Path.Combine(value, "steamapps/appmanifest_" + appid + ".acf")))
+                foreach (dynamic item in entry.Value.Children())
                 {
-                    return Path.Combine(Path.Combine(value, "steamapps/common"), gameName);
+                    string key = item.Key;
+                    string value = item.Value.ToString();
+                    if (key == "path")
+                    {
+                        if (File.Exists(Path.Combine(value, "steamapps/appmanifest_" + appid + ".acf")))
+                        {
+                            return Path.Combine(Path.Combine(value, "steamapps/common"), gameName);
+                        }
+                    }
                 }
+                
             }
         }
 
