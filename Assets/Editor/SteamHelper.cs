@@ -54,7 +54,14 @@ public static class SteamHelper
             string key = regMatch.Groups[1].Value;
             string value = regMatch.Groups[2].Value;
             int number;
-            if (int.TryParse(key, out number))
+            if (key == "path") // new versions of steam
+            {
+                if (File.Exists(Path.Combine(value, "steamapps/appmanifest_" + appid + ".acf")))
+                {
+                    return Path.Combine(Path.Combine(value, "steamapps/common"), gameName);
+                }
+            }
+            else if (int.TryParse(key, out number)) // old versions of steam
             {
                 if (File.Exists(Path.Combine(value, "steamapps/appmanifest_" + appid + ".acf")))
                 {

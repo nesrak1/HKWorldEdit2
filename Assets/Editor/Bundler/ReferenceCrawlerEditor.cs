@@ -207,44 +207,48 @@ namespace Assets.Bundler
 
                                     AssetExternal colBaseExt = am.GetExtAsset(depInst, spriteBase.Get("collection"));
                                     AssetsFileInstance colInst = colBaseExt.file;
-                                    AssetTypeValueField colBase = am.GetMonoBaseFieldCached(colInst, colBaseExt.info, managedPath);
-                                    AssetTypeValueField spriteDefinitions = colBase.Get("spriteDefinitions")[spriteId];
 
-                                    AssetTypeValueField positionsField = spriteDefinitions.Get("positions");
-                                    AssetTypeValueField uvsField = spriteDefinitions.Get("uvs");
-                                    AssetTypeValueField indicesField = spriteDefinitions.Get("indices");
-
-                                    Vector3[] positions = new Vector3[positionsField.GetChildrenCount()];
-                                    Vector2[] uvs = new Vector2[uvsField.GetChildrenCount()];
-                                    int[] indices = new int[indicesField.GetChildrenCount()];
-
-                                    for (int i = 0; i < positions.Length; i++)
+                                    if (colInst != null)
                                     {
-                                        AssetTypeValueField positionField = positionsField[i];
-                                        positions[i] = new Vector3()
+                                        AssetTypeValueField colBase = am.GetMonoBaseFieldCached(colInst, colBaseExt.info, managedPath);
+                                        AssetTypeValueField spriteDefinitions = colBase.Get("spriteDefinitions")[spriteId];
+
+                                        AssetTypeValueField positionsField = spriteDefinitions.Get("positions");
+                                        AssetTypeValueField uvsField = spriteDefinitions.Get("uvs");
+                                        AssetTypeValueField indicesField = spriteDefinitions.Get("indices");
+
+                                        Vector3[] positions = new Vector3[positionsField.GetChildrenCount()];
+                                        Vector2[] uvs = new Vector2[uvsField.GetChildrenCount()];
+                                        int[] indices = new int[indicesField.GetChildrenCount()];
+
+                                        for (int i = 0; i < positions.Length; i++)
                                         {
-                                            x = positionField.Get("x").GetValue().AsFloat(),
-                                            y = positionField.Get("y").GetValue().AsFloat(),
-                                            z = positionField.Get("z").GetValue().AsFloat()
-                                        };
-                                    }
-                                    for (int i = 0; i < uvs.Length; i++)
-                                    {
-                                        AssetTypeValueField uvField = uvsField[i];
-                                        uvs[i] = new Vector2()
+                                            AssetTypeValueField positionField = positionsField[i];
+                                            positions[i] = new Vector3()
+                                            {
+                                                x = positionField.Get("x").GetValue().AsFloat(),
+                                                y = positionField.Get("y").GetValue().AsFloat(),
+                                                z = positionField.Get("z").GetValue().AsFloat()
+                                            };
+                                        }
+                                        for (int i = 0; i < uvs.Length; i++)
                                         {
-                                            x = uvField.Get("x").GetValue().AsFloat(),
-                                            y = uvField.Get("y").GetValue().AsFloat()
-                                        };
-                                    }
-                                    for (int i = 0; i < indices.Length; i++)
-                                    {
-                                        AssetTypeValueField indexField = indicesField[i];
-                                        indices[i] = indexField.GetValue().AsInt();
-                                    }
+                                            AssetTypeValueField uvField = uvsField[i];
+                                            uvs[i] = new Vector2()
+                                            {
+                                                x = uvField.Get("x").GetValue().AsFloat(),
+                                                y = uvField.Get("y").GetValue().AsFloat()
+                                            };
+                                        }
+                                        for (int i = 0; i < indices.Length; i++)
+                                        {
+                                            AssetTypeValueField indexField = indicesField[i];
+                                            indices[i] = indexField.GetValue().AsInt();
+                                        }
 
-                                    AssetID thisAid = ConvertToAssetID(inst, 0, inf.index);
-                                    tk2dFromGoLookup[thisAid] = new Tk2dInfo(positions, uvs, indices);
+                                        AssetID thisAid = ConvertToAssetID(inst, 0, inf.index);
+                                        tk2dFromGoLookup[thisAid] = new Tk2dInfo(positions, uvs, indices);
+                                    }
                                 }
                             }
                             ///////////////
